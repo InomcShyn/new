@@ -375,11 +375,18 @@ class FacebookGroupsScraper:
             print("⚠️ No comments with standard selectors, trying emergency fallback...")
             
             emergency_selectors = [
+                # Mobile groups specific fallbacks
+                "//div[@data-sigil='comment']",
+                "//div[contains(@data-ft, 'comment')]",
+                "//div[contains(@id, 'comment_')]",
+                "//div[@role='article']//div[string-length(text()) > 30]",
                 "//div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 20]",
                 "//div[string-length(normalize-space(text())) > 30]",
                 "//*[contains(text(), 'Like') or contains(text(), 'Thích')]/ancestor::div[string-length(text()) > 40][1]",
                 "//span[string-length(normalize-space(text())) > 25]/ancestor::div[1]",
-                "//a[contains(@href,'profile.php')]/ancestor::div[string-length(text()) > 30][1]"
+                "//a[contains(@href,'profile.php')]/ancestor::div[string-length(text()) > 30][1]",
+                # Very broad mobile groups selector
+                "//div[string-length(normalize-space(text())) > 50 and .//a[contains(@href, 'facebook.com/')]]"
             ]
             
             for selector in emergency_selectors:
@@ -391,7 +398,7 @@ class FacebookGroupsScraper:
                             all_comment_elements.append(elem)
                     
                     # Stop if we found some elements
-                    if len(all_comment_elements) > 10:
+                    if len(all_comment_elements) > 15:
                         break
                 except:
                     continue
@@ -470,7 +477,17 @@ class FacebookGroupsScraper:
             
             print(f"  Processing: '{full_text[:80]}...'")
             
-            # Find profile links (groups often have different structure)
+            # Skip anonymous users
+            if any(keyword in full_text.lower() for keyword in ['ẩn danh', 'người tham gia ẩn danh', 'anonymous']):
+                print("  ⚠️ Skipping anonymous user comment")
+                return None
+            
+            username = "Unknown"
+            profile_href = ""
+            uid = "Unknown"
+            comment_link = ""
+            
+            # Strategy 1: Find profile links with various selectors
             profile_link_selectors = [
                 ".//a[contains(@href, 'profile.php')]",
                 ".//a[contains(@href, 'user.php')]",
@@ -478,19 +495,18 @@ class FacebookGroupsScraper:
                 ".//strong/a[contains(@href, 'facebook.com/')]",
                 ".//h3/a[contains(@href, 'facebook.com/')]",
                 ".//span/a[contains(@href, 'facebook.com/')]",
-                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]"
+                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]",
+                # Mobile groups specific selectors
+                ".//div[@data-sigil='comment']//a[contains(@href, 'facebook.com/')]",
+                ".//div[contains(@class, 'comment')]//a[contains(@href, 'facebook.com/')]",
+                ".//div[@role='article']//a[contains(@href, 'facebook.com/')]"
             ]
-            
-            username = "Unknown"
-            profile_href = ""
-            uid = "Unknown"
-            comment_link = ""
             
             # Extract profile link and username
             for selector in profile_link_selectors:
                 try:
                     links = element.find_elements(By.XPATH, selector)
-                    for link in links[:3]:  # Check more links
+                    for link in links[:5]:  # Check more links
                         link_text = link.text.strip()
                         link_href = link.get_attribute("href") or ""
                         
@@ -499,7 +515,7 @@ class FacebookGroupsScraper:
                             2 <= len(link_text) <= 100 and 
                             not link_text.startswith('http') and
                             not link_text.isdigit() and
-                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment', 'ẩn danh', 'người tham gia'])):
+                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment', 'ẩn danh', 'người tham gia', 'thành viên', 'bài viết của'])):
                             
                             username = link_text
                             profile_href = link_href
@@ -509,7 +525,8 @@ class FacebookGroupsScraper:
                                 r'profile\.php\?id=(\d+)',
                                 r'user\.php\?id=(\d+)',
                                 r'/(\d+)(?:\?|$)',
-                                r'id=(\d+)'
+                                r'id=(\d+)',
+                                r'(\d{10,})'  # Facebook UIDs are usually 10+ digits
                             ]
                             
                             for pattern in uid_patterns:
@@ -525,19 +542,20 @@ class FacebookGroupsScraper:
                 except:
                     continue
             
-            # If still no username, try to extract from text
+            # Strategy 2: If still no username, try to extract from text structure
             if username == "Unknown":
-                # Look for names in the text that might be clickable
                 try:
-                    # Find any clickable text that looks like a name
-                    name_candidates = element.find_elements(By.XPATH, ".//a[string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50]")
+                    # Look for any clickable text that looks like a name
+                    name_candidates = element.find_elements(By.XPATH, 
+                        ".//a[string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50 and contains(@href, 'facebook.com/')]")
+                    
                     for candidate in name_candidates:
                         candidate_text = candidate.text.strip()
                         candidate_href = candidate.get_attribute("href") or ""
                         
                         # Skip obvious UI elements
                         if (candidate_text and 
-                            not any(ui in candidate_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên']) and
+                            not any(ui in candidate_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của', 'nhà mình', 'cảm ơn', 'cha ta', 'mẹ ta']) and
                             'facebook.com' in candidate_href):
                             
                             username = candidate_text
@@ -548,6 +566,69 @@ class FacebookGroupsScraper:
                             if uid_match:
                                 uid = uid_match.group(1)
                             break
+                except:
+                    pass
+            
+            # Strategy 3: Try to find comment container and extract from parent
+            if username == "Unknown":
+                try:
+                    # Look for comment container and find username in parent elements
+                    comment_container = element.find_element(By.XPATH, 
+                        "./ancestor::div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 20][1]")
+                    
+                    if comment_container:
+                        # Find username in the comment container
+                        username_links = comment_container.find_elements(By.XPATH, 
+                            ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]")
+                        
+                        for link in username_links:
+                            link_text = link.text.strip()
+                            link_href = link.get_attribute("href") or ""
+                            
+                            if (link_text and 
+                                not any(ui in link_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên']) and
+                                'facebook.com' in link_href):
+                                
+                                username = link_text
+                                profile_href = link_href
+                                
+                                # Extract UID
+                                uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
+                                if uid_match:
+                                    uid = uid_match.group(1)
+                                break
+                except:
+                    pass
+            
+            # Strategy 4: Mobile groups specific - look for username in nearby elements
+            if username == "Unknown":
+                try:
+                    # For mobile groups, username might be in a sibling or parent element
+                    parent_element = element.find_element(By.XPATH, "./ancestor::div[string-length(normalize-space(text())) > 30][1]")
+                    
+                    if parent_element:
+                        # Look for username links in the parent
+                        username_links = parent_element.find_elements(By.XPATH, 
+                            ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50]")
+                        
+                        for link in username_links:
+                            link_text = link.text.strip()
+                            link_href = link.get_attribute("href") or ""
+                            
+                            # More lenient validation for mobile groups
+                            if (link_text and 
+                                not any(ui in link_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của']) and
+                                'facebook.com' in link_href and
+                                len(link_text) > 2):
+                                
+                                username = link_text
+                                profile_href = link_href
+                                
+                                # Extract UID
+                                uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
+                                if uid_match:
+                                    uid = uid_match.group(1)
+                                break
                 except:
                     pass
             
@@ -603,6 +684,13 @@ class FacebookGroupsScraper:
                     pass
             
             # Return data focused on links and names
+            # For mobile groups, we need at least a username to be valid
+            if username == "Unknown":
+                print("  ❌ Could not extract username from this element")
+                return None
+                
+            print(f"  ✅ Extracted: {username} - Profile: {profile_href[:50]}... - UID: {uid}")
+            
             return {
                 "UID": uid,
                 "Name": username,
