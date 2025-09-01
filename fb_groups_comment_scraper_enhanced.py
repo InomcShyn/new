@@ -249,13 +249,18 @@ class EnhancedFacebookGroupsScraper:
                 ".//a[contains(@href, 'facebook.com/') and not(contains(@href, 'groups'))]",
                 ".//strong[not(.//a)]//a[contains(@href, 'facebook.com/')]",
                 ".//h3[not(.//a)]//a[contains(@href, 'facebook.com/')]",
-                ".//span[not(.//a)]//a[contains(@href, 'facebook.com/')]"
+                ".//span[not(.//a)]//a[contains(@href, 'facebook.com/')]",
+                # More specific selectors for comment authors
+                ".//div[contains(@class, 'comment')]//a[contains(@href, 'facebook.com/')]",
+                ".//div[contains(@data-sigil, 'comment')]//a[contains(@href, 'facebook.com/')]",
+                ".//article//a[contains(@href, 'facebook.com/')]",
+                ".//div[@role='article']//a[contains(@href, 'facebook.com/')]"
             ]
             
             for selector in profile_selectors:
                 try:
                     links = element.find_elements(By.XPATH, selector)
-                    for link in links[:3]:  # Check first 3 links
+                    for link in links[:5]:  # Check first 5 links
                         link_text = link.text.strip()
                         link_href = link.get_attribute("href") or ""
                         
@@ -285,6 +290,7 @@ class EnhancedFacebookGroupsScraper:
                             except:
                                 pass
                             
+                            print(f"    DEBUG: Found user '{link_text}' with URL '{link_href}'")
                             break
                     
                     if user_info['name'] != 'Unknown':
@@ -304,7 +310,12 @@ class EnhancedFacebookGroupsScraper:
                     ".//span[contains(@class, 'author')]",
                     ".//div[contains(@class, 'author')]",
                     ".//strong[contains(text(), ' ') and string-length(text()) > 3]",
-                    ".//h3[contains(text(), ' ') and string-length(text()) > 3]"
+                    ".//h3[contains(text(), ' ') and string-length(text()) > 3]",
+                    # Additional selectors for comment authors
+                    ".//div[contains(@class, 'comment')]//strong",
+                    ".//div[contains(@data-sigil, 'comment')]//strong",
+                    ".//article//strong",
+                    ".//div[@role='article']//strong"
                 ]
                 
                 for selector in display_selectors:
@@ -318,6 +329,7 @@ class EnhancedFacebookGroupsScraper:
                                 user_info['display_name'] = display_text
                                 if user_info['name'] == 'Unknown':
                                     user_info['name'] = display_text
+                                print(f"    DEBUG: Found display name '{display_text}'")
                                 break
                     except:
                         continue
@@ -335,6 +347,7 @@ class EnhancedFacebookGroupsScraper:
                             ft_data = json.loads(data_ft)
                             if 'actorID' in ft_data:
                                 user_info['uid'] = str(ft_data['actorID'])
+                                print(f"    DEBUG: Found UID from data-ft: {user_info['uid']}")
                         except:
                             pass
             except:
@@ -358,6 +371,7 @@ class EnhancedFacebookGroupsScraper:
                             potential_name = match.group(1)
                             if validate_username(potential_name):
                                 user_info['name'] = potential_name
+                                print(f"    DEBUG: Found name from mention pattern: '{potential_name}'")
                                 break
                 except:
                     pass
@@ -381,10 +395,13 @@ class EnhancedFacebookGroupsScraper:
             if not full_text or len(full_text) < 5:
                 return ""
             
+            print(f"    DEBUG: Full text: '{full_text[:100]}...'")
+            
             # Strategy 1: Remove username and clean
             content = extract_comment_content(full_text, username)
             if content and len(content) >= 5:
                 content_candidates.append(content)
+                print(f"    DEBUG: Strategy 1 content: '{content[:50]}...'")
             
             # Strategy 2: Look for specific comment body elements
             comment_body_selectors = [
@@ -393,7 +410,12 @@ class EnhancedFacebookGroupsScraper:
                 ".//div[contains(@class, 'comment-body')]",
                 ".//div[contains(@class, 'comment-text')]",
                 ".//div[contains(@class, 'story_body')]",
-                ".//div[contains(@data-ft, 'comment')]//div[not(.//a[contains(@href, 'profile.php')])]"
+                ".//div[contains(@data-ft, 'comment')]//div[not(.//a[contains(@href, 'profile.php')])]",
+                # Additional selectors for mobile
+                ".//div[contains(@class, 'comment')]//div[not(.//a)]",
+                ".//div[contains(@data-sigil, 'comment')]//div[not(.//a)]",
+                ".//article//div[not(.//a)]",
+                ".//div[@role='article']//div[not(.//a)]"
             ]
             
             for selector in comment_body_selectors:
@@ -405,6 +427,7 @@ class EnhancedFacebookGroupsScraper:
                             cleaned_text = extract_comment_content(body_text, username)
                             if cleaned_text:
                                 content_candidates.append(cleaned_text)
+                                print(f"    DEBUG: Strategy 2 content: '{cleaned_text[:50]}...'")
                 except:
                     continue
             
@@ -412,7 +435,10 @@ class EnhancedFacebookGroupsScraper:
             text_only_selectors = [
                 ".//div[not(.//a) and not(.//button) and string-length(normalize-space(text())) > 20]",
                 ".//span[not(.//a) and not(.//button) and string-length(normalize-space(text())) > 20]",
-                ".//p[not(.//a) and not(.//button) and string-length(normalize-space(text())) > 20]"
+                ".//p[not(.//a) and not(.//button) and string-length(normalize-space(text())) > 20]",
+                # Additional selectors for mobile
+                ".//div[contains(@class, 'comment')]//div[not(.//a) and not(.//button)]",
+                ".//div[contains(@data-sigil, 'comment')]//div[not(.//a) and not(.//button)]"
             ]
             
             for selector in text_only_selectors:
@@ -424,6 +450,7 @@ class EnhancedFacebookGroupsScraper:
                             cleaned_text = extract_comment_content(text_content, username)
                             if cleaned_text:
                                 content_candidates.append(cleaned_text)
+                                print(f"    DEBUG: Strategy 3 content: '{cleaned_text[:50]}...'")
                 except:
                     continue
             
@@ -448,6 +475,7 @@ class EnhancedFacebookGroupsScraper:
                 cleaned = re.sub(r'\s+', ' ', cleaned).strip()
                 if cleaned and len(cleaned) >= 5:
                     cleaned_candidates.append(cleaned)
+                    print(f"    DEBUG: Cleaned candidate: '{cleaned[:50]}...'")
             
             # Choose the best content
             if not cleaned_candidates:
@@ -460,6 +488,7 @@ class EnhancedFacebookGroupsScraper:
             if self.is_ui_only_content(best_content):
                 return ""
             
+            print(f"    DEBUG: Final content: '{best_content[:100]}...'")
             return best_content.strip()
             
         except Exception as e:
@@ -858,7 +887,7 @@ class EnhancedFacebookGroupsScraper:
                         # Update content to remove the name
                         content = self.remove_username_from_content(content, extracted_name)
                 
-                # Create comment data
+                # Create comment data with enhanced information
                 comment_data = {
                     "UID": user_info['uid'],
                     "Name": username,
@@ -869,7 +898,8 @@ class EnhancedFacebookGroupsScraper:
                     "Type": comment_type,
                     "Layout": self.current_layout,
                     "ContentLength": len(content),
-                    "ElementIndex": i
+                    "ElementIndex": i,
+                    "RawText": element.text.strip()[:200]  # Add raw text for debugging
                 }
                 
                 # Deduplication
@@ -881,6 +911,8 @@ class EnhancedFacebookGroupsScraper:
                 
                 comments.append(comment_data)
                 print(f"  ✅ Added {comment_type}: {username} - {content[:50]}...")
+                print(f"  📍 Profile: {user_info['profile_url']}")
+                print(f"  🆔 UID: {user_info['uid']}")
                 
             except Exception as e:
                 print(f"  Error processing element {i}: {e}")
@@ -901,13 +933,16 @@ class EnhancedFacebookGroupsScraper:
         if not content:
             return None
         
-        # Patterns to extract username from content - Simplified and improved
+        # Patterns to extract username from content - Reordered for better matching
         patterns = [
+            (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s+(https?://)', 'Name with URL'),  # Must come before Name: content
             (r'^([A-Z][a-zA-ZÀ-ỹ\s]+):\s*(.+)', 'Name: content'),
             (r'^@([a-zA-Z0-9_À-ỹ]+)\s+(.+)', '@username content'),
             (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s+[0-9]+\s+(.+)', 'Name 123 content'),
             (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s+[0-9]+$', 'Name 123'),
             (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s*$', 'Name only'),
+            # Additional patterns for Vietnamese names without colon - More specific
+            (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s+(không|chính|bạn|em|cô|chú|anh|chị)\s+(.+)', 'Name with Vietnamese words'),
         ]
         
         for pattern, description in patterns:
