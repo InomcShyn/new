@@ -427,10 +427,15 @@ class FacebookGroupsScraper:
                 if not comment_data:
                     continue
                 
-                # Deduplication based on profile link and name
+                # Deduplication based on profile link and name - more lenient
+                if comment_data['Name'] == "Unknown":
+                    print("  ✗ Skipped: no username found")
+                    continue
+                    
+                # Check for duplicates - only skip if same name AND same profile link
                 content_signature = f"{comment_data['Name']}_{comment_data['ProfileLink']}"
                 if content_signature in seen_content:
-                    print("  ✗ Skipped: duplicate")
+                    print("  ✗ Skipped: duplicate user")
                     continue
                 seen_content.add(content_signature)
                 
@@ -472,7 +477,8 @@ class FacebookGroupsScraper:
                 ".//a[contains(@href, '/profile/')]",
                 ".//strong/a[contains(@href, 'facebook.com/')]",
                 ".//h3/a[contains(@href, 'facebook.com/')]",
-                ".//span/a[contains(@href, 'facebook.com/')]"
+                ".//span/a[contains(@href, 'facebook.com/')]",
+                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]"
             ]
             
             username = "Unknown"
@@ -484,24 +490,33 @@ class FacebookGroupsScraper:
             for selector in profile_link_selectors:
                 try:
                     links = element.find_elements(By.XPATH, selector)
-                    for link in links[:2]:
+                    for link in links[:3]:  # Check more links
                         link_text = link.text.strip()
                         link_href = link.get_attribute("href") or ""
                         
-                        # Validate name for groups
+                        # Validate name for groups - more lenient
                         if (link_text and 
-                            3 <= len(link_text) <= 100 and 
+                            2 <= len(link_text) <= 100 and 
                             not link_text.startswith('http') and
                             not link_text.isdigit() and
-                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment'])):
+                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment', 'ẩn danh', 'người tham gia'])):
                             
                             username = link_text
                             profile_href = link_href
                             
-                            # Extract UID
-                            uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
-                            if uid_match:
-                                uid = uid_match.group(1)
+                            # Extract UID from various formats
+                            uid_patterns = [
+                                r'profile\.php\?id=(\d+)',
+                                r'user\.php\?id=(\d+)',
+                                r'/(\d+)(?:\?|$)',
+                                r'id=(\d+)'
+                            ]
+                            
+                            for pattern in uid_patterns:
+                                uid_match = re.search(pattern, link_href)
+                                if uid_match:
+                                    uid = uid_match.group(1)
+                                    break
                             break
                     
                     if username != "Unknown":
@@ -510,13 +525,40 @@ class FacebookGroupsScraper:
                 except:
                     continue
             
-            # Extract comment link
+            # If still no username, try to extract from text
+            if username == "Unknown":
+                # Look for names in the text that might be clickable
+                try:
+                    # Find any clickable text that looks like a name
+                    name_candidates = element.find_elements(By.XPATH, ".//a[string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50]")
+                    for candidate in name_candidates:
+                        candidate_text = candidate.text.strip()
+                        candidate_href = candidate.get_attribute("href") or ""
+                        
+                        # Skip obvious UI elements
+                        if (candidate_text and 
+                            not any(ui in candidate_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên']) and
+                            'facebook.com' in candidate_href):
+                            
+                            username = candidate_text
+                            profile_href = candidate_href
+                            
+                            # Extract UID
+                            uid_match = re.search(r'profile\.php\?id=(\d+)', candidate_href)
+                            if uid_match:
+                                uid = uid_match.group(1)
+                            break
+                except:
+                    pass
+            
+            # Extract comment link - try multiple strategies
             comment_link_selectors = [
                 ".//a[contains(@href, 'permalink')]",
                 ".//a[contains(@href, 'comment_id')]",
                 ".//a[contains(@href, 'story_fbid')]",
                 ".//a[contains(@href, 'comment') and contains(@href, 'reply')]",
-                ".//a[contains(@href, 'comment') and contains(@href, 'id')]"
+                ".//a[contains(@href, 'comment') and contains(@href, 'id')]",
+                ".//a[contains(@href, 'groups/') and contains(@href, 'posts/')]"
             ]
             
             for selector in comment_link_selectors:
@@ -541,7 +583,8 @@ class FacebookGroupsScraper:
                         comment_id_selectors = [
                             ".//div[contains(@id, 'comment_')]",
                             ".//div[contains(@data-ft, 'comment')]",
-                            ".//div[@data-sigil='comment']"
+                            ".//div[@data-sigil='comment']",
+                            ".//div[contains(@class, 'comment')]"
                         ]
                         
                         for selector in comment_id_selectors:
@@ -645,34 +688,37 @@ class FacebookGroupsScraper:
             return "Comment"
 
     def cleanup_groups_comments(self, comments):
-        """Final cleanup specifically for groups comments"""
+        """Final cleanup specifically for groups comments - only main comments"""
         print("=== CLEANING UP GROUPS COMMENTS ===")
         
         cleaned = []
         final_seen = set()
         
         for comment in comments:
-            # More aggressive deduplication for groups
-            signatures = [
-                f"{comment['Name']}_{comment['ProfileLink']}",
-                f"{comment['UID']}_{comment['ProfileLink']}" if comment['UID'] != "Unknown" else None
-            ]
-            
-            is_duplicate = any(sig in final_seen for sig in signatures if sig)
-            
-            if not is_duplicate and comment['Name'] != "Unknown" and comment['ProfileLink']:
-                cleaned.append(comment)
-                for sig in signatures:
-                    if sig:
-                        final_seen.add(sig)
+            # Only keep main comments, skip replies
+            if comment['Type'] == 'Reply':
+                print(f"  ✗ Skipped reply: {comment['Name']}")
+                continue
+                
+            # Basic deduplication
+            if comment['Name'] == "Unknown" or not comment['ProfileLink']:
+                print(f"  ✗ Skipped invalid: {comment['Name']} - {comment['ProfileLink']}")
+                continue
+                
+            # Check for duplicates
+            signature = f"{comment['Name']}_{comment['ProfileLink']}"
+            if signature in final_seen:
+                print(f"  ✗ Skipped duplicate: {comment['Name']}")
+                continue
+                
+            final_seen.add(signature)
+            cleaned.append(comment)
+            print(f"  ✅ Kept main comment: {comment['Name']} - {comment['ProfileLink']}")
         
-        # Sort: main comments first, then replies
-        cleaned.sort(key=lambda x: (
-            x['Type'] == 'Reply',
-            x.get('ElementIndex', 999)
-        ))
+        # Sort by element index
+        cleaned.sort(key=lambda x: x.get('ElementIndex', 999))
         
-        print(f"Final cleaned comments: {len(cleaned)}")
+        print(f"Final cleaned main comments: {len(cleaned)}")
         return cleaned
 
     def scrape_all_comments(self, limit=0, resolve_uid=True, progress_callback=None):
@@ -726,7 +772,7 @@ class FBGroupsAppGUI:
                               font=("Arial", 20, "bold"), bg="#e8f5e8", fg="#2d5a2d")
         title_label.pack()
         
-        subtitle_label = tk.Label(header_frame, text="✨ Chuyên dụng cho Facebook Groups - Tập trung vào Link Profile & Comment", 
+        subtitle_label = tk.Label(header_frame, text="✨ Chuyên dụng cho Facebook Groups - Chỉ lấy Main Comments (không lấy replies)", 
                                  font=("Arial", 11), bg="#e8f5e8", fg="#5a5a5a")
         subtitle_label.pack(pady=(5,0))
 
@@ -790,7 +836,7 @@ class FBGroupsAppGUI:
                                   wraplength=900, justify="left", font=("Arial", 11), bg="#e8f5e8")
         self.lbl_status.pack(anchor="w", padx=15, pady=(15,5))
 
-        self.lbl_progress_detail = tk.Label(status_frame, text="💡 Nhập link Groups và cookie → Nhấn Bắt đầu → Scraper sẽ lấy Link Profile & Comment", 
+        self.lbl_progress_detail = tk.Label(status_frame, text="💡 Nhập link Groups và cookie → Nhấn Bắt đầu → Scraper sẽ lấy Main Comments: Name, Profile Link, Comment Link, UID", 
                                           fg="#6c757d", wraplength=900, justify="left", font=("Arial", 9), bg="#e8f5e8")
         self.lbl_progress_detail.pack(anchor="w", padx=15, pady=(0,10))
 
@@ -931,14 +977,15 @@ class FBGroupsAppGUI:
                     df.to_excel(file_out, index=False, engine="openpyxl")
                 
                 # Statistics
-                comments_count = len([c for c in comments if c['Type'] == 'Comment'])
+                main_comments_count = len([c for c in comments if c['Type'] == 'Comment'])
                 replies_count = len([c for c in comments if c['Type'] == 'Reply'])
                 unique_users = len(set(c['Name'] for c in comments if c['Name'] != 'Unknown'))
                 profile_links = len([c for c in comments if c['ProfileLink']])
                 comment_links = len([c for c in comments if c['CommentLink']])
+                uid_count = len([c for c in comments if c['UID'] != 'Unknown'])
                 
                 self.lbl_status.config(text=f"🎉 GROUPS SCRAPING HOÀN THÀNH!", fg="#28a745")
-                self.lbl_progress_detail.config(text=f"📊 Kết quả: {comments_count} comments + {replies_count} replies | {unique_users} users | {profile_links} profile links | {comment_links} comment links | {layout} layout | File: {file_out}")
+                self.lbl_progress_detail.config(text=f"📊 Kết quả: {main_comments_count} main comments | {unique_users} users | {profile_links} profile links | {comment_links} comment links | {uid_count} UIDs | {layout} layout | File: {file_out}")
                 
             else:
                 self.lbl_status.config(text="⚠️ Không tìm thấy comment trong Groups", fg="#ffc107")
