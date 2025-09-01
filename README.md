@@ -11,6 +11,8 @@ Lấy thông tin từ Facebook Groups:
 - **UID người dùng**
 - **Loại comment** (Main Comment/Reply)
 
+**✨ Tính năng đặc biệt:** Tự động chọn "Tất cả bình luận" thay vì chỉ "Bình luận phù hợp nhất" để lấy được nhiều comment hơn!
+
 ## 📋 **Yêu cầu**
 
 - Python 3.8+
@@ -79,6 +81,8 @@ File Excel/CSV sẽ có các cột:
 - **Reply filtering**: Chỉ lấy main comments
 - **Debug mode**: Lưu HTML để debug
 - **Progress tracking**: Hiển thị tiến trình real-time
+- **🎯 Auto "All Comments"**: Tự động chọn "Tất cả bình luận" để lấy nhiều comment hơn
+- **🚀 Initial expansion**: Tự động click các nút expand ban đầu
 
 ## ⚠️ **Lưu ý**
 

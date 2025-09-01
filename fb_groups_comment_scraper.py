@@ -146,6 +146,10 @@ class FacebookGroupsScraper:
                 
                 if group_indicators or "groups/" in current_url:
                     print(f"✅ Successfully loaded groups post with {self.current_layout} layout")
+                    
+                    # Try to switch to "Tất cả bình luận" (All comments) view
+                    self._switch_to_all_comments()
+                    
                     return True
                 else:
                     print("⚠️ No group indicators found, but proceeding...")
@@ -157,6 +161,86 @@ class FacebookGroupsScraper:
         
         print("❌ Failed to load post with any URL variant")
         return False
+
+    def _switch_to_all_comments(self):
+        """Switch to 'All comments' view to get more comments"""
+        print("🔄 Attempting to switch to 'All comments' view...")
+        
+        try:
+            # Wait a bit for page to fully load
+            time.sleep(3)
+            
+            # Try to find and click "Tất cả bình luận" or "All comments" button
+            all_comments_selectors = [
+                # Vietnamese selectors
+                "//a[contains(text(),'Tất cả bình luận')]",
+                "//span[contains(text(),'Tất cả bình luận')]",
+                "//div[contains(text(),'Tất cả bình luận')]",
+                "//button[contains(text(),'Tất cả bình luận')]",
+                
+                # English selectors
+                "//a[contains(text(),'All comments')]",
+                "//span[contains(text(),'All comments')]",
+                "//div[contains(text(),'All comments')]",
+                "//button[contains(text(),'All comments')]",
+                
+                # Mobile specific selectors
+                "//div[@role='button' and contains(text(),'Tất cả bình luận')]",
+                "//div[@role='button' and contains(text(),'All comments')]",
+                "//div[@data-sigil='comment-sort']//a[contains(text(),'Tất cả')]",
+                "//div[@data-sigil='comment-sort']//a[contains(text(),'All')]",
+                
+                # Alternative selectors for comment sorting
+                "//a[contains(@href,'sort') and contains(text(),'Tất cả')]",
+                "//a[contains(@href,'sort') and contains(text(),'All')]",
+                "//a[contains(@href,'comments') and contains(text(),'Tất cả')]",
+                "//a[contains(@href,'comments') and contains(text(),'All')]"
+            ]
+            
+            clicked = False
+            for selector in all_comments_selectors:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    for element in elements:
+                        if element.is_displayed() and element.is_enabled():
+                            print(f"  Found 'All comments' button: {element.text}")
+                            
+                            # Scroll into view
+                            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
+                            time.sleep(1)
+                            
+                            # Try to click
+                            try:
+                                element.click()
+                                clicked = True
+                                print("  ✅ Successfully clicked 'All comments' button")
+                                time.sleep(3)  # Wait for comments to load
+                                break
+                            except:
+                                # Try JavaScript click
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", element)
+                                    clicked = True
+                                    print("  ✅ Successfully clicked 'All comments' button (JS)")
+                                    time.sleep(3)
+                                    break
+                                except:
+                                    continue
+                    
+                    if clicked:
+                        break
+                        
+                except Exception as e:
+                    continue
+            
+            if not clicked:
+                print("  ⚠️ Could not find or click 'All comments' button, proceeding with current view")
+            else:
+                print("  🎯 Switched to 'All comments' view successfully")
+                
+        except Exception as e:
+            print(f"  ⚠️ Error switching to 'All comments' view: {e}")
+            print("  Proceeding with current view...")
 
     def get_groups_selectors(self):
         """Get selectors optimized for Facebook Groups"""
@@ -226,6 +310,10 @@ class FacebookGroupsScraper:
         iteration = 0
         consecutive_failures = 0
         total_expansions = 0
+        
+        # First, try to find and click "View more comments" or similar buttons
+        print("🔍 Looking for initial comment expansion buttons...")
+        self._click_initial_expand_buttons()
         
         while iteration < max_iterations and consecutive_failures < 8:
             if self._stop_flag:
@@ -336,6 +424,64 @@ class FacebookGroupsScraper:
                 break
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(2)
+
+    def _click_initial_expand_buttons(self):
+        """Click initial comment expansion buttons to show more comments"""
+        try:
+            # Look for initial comment expansion buttons
+            initial_expand_selectors = [
+                # Vietnamese
+                "//a[contains(text(),'Xem bình luận')]",
+                "//a[contains(text(),'Xem thêm bình luận')]",
+                "//a[contains(text(),'Hiển thị bình luận')]",
+                "//div[contains(text(),'Xem bình luận')]",
+                "//span[contains(text(),'Xem bình luận')]",
+                
+                # English
+                "//a[contains(text(),'View comments')]",
+                "//a[contains(text(),'View more comments')]",
+                "//a[contains(text(),'Show comments')]",
+                "//div[contains(text(),'View comments')]",
+                "//span[contains(text(),'View comments')]",
+                
+                # Mobile specific
+                "//div[@role='button' and contains(text(),'Xem bình luận')]",
+                "//div[@role='button' and contains(text(),'View comments')]",
+                "//div[@data-sigil='comment-expand']//a[contains(text(),'Xem')]",
+                "//div[@data-sigil='comment-expand']//a[contains(text(),'View')]"
+            ]
+            
+            for selector in initial_expand_selectors:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    for element in elements:
+                        if element.is_displayed() and element.is_enabled():
+                            print(f"  Found initial expand button: {element.text}")
+                            
+                            # Scroll into view
+                            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
+                            time.sleep(1)
+                            
+                            # Try to click
+                            try:
+                                element.click()
+                                print("  ✅ Successfully clicked initial expand button")
+                                time.sleep(3)  # Wait for comments to load
+                                break
+                            except:
+                                # Try JavaScript click
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", element)
+                                    print("  ✅ Successfully clicked initial expand button (JS)")
+                                    time.sleep(3)
+                                    break
+                                except:
+                                    continue
+                except:
+                    continue
+                    
+        except Exception as e:
+            print(f"  ⚠️ Error clicking initial expand buttons: {e}")
 
     def extract_groups_comments(self):
         """Extract comments specifically optimized for Facebook Groups - focus on links and names"""
@@ -860,7 +1006,7 @@ class FBGroupsAppGUI:
                               font=("Arial", 20, "bold"), bg="#e8f5e8", fg="#2d5a2d")
         title_label.pack()
         
-        subtitle_label = tk.Label(header_frame, text="✨ Chuyên dụng cho Facebook Groups - Chỉ lấy Main Comments (không lấy replies)", 
+        subtitle_label = tk.Label(header_frame, text="✨ Chuyên dụng cho Facebook Groups - Tự động chọn 'Tất cả bình luận' - Chỉ lấy Main Comments", 
                                  font=("Arial", 11), bg="#e8f5e8", fg="#5a5a5a")
         subtitle_label.pack(pady=(5,0))
 
@@ -924,7 +1070,7 @@ class FBGroupsAppGUI:
                                   wraplength=900, justify="left", font=("Arial", 11), bg="#e8f5e8")
         self.lbl_status.pack(anchor="w", padx=15, pady=(15,5))
 
-        self.lbl_progress_detail = tk.Label(status_frame, text="💡 Nhập link Groups và cookie → Nhấn Bắt đầu → Scraper sẽ lấy Main Comments: Name, Profile Link, Comment Link, UID", 
+                self.lbl_progress_detail = tk.Label(status_frame, text="💡 Nhập link Groups và cookie → Nhấn Bắt đầu → Scraper sẽ tự động chọn 'Tất cả bình luận' và lấy Main Comments: Name, Profile Link, Comment Link, UID",
                                           fg="#6c757d", wraplength=900, justify="left", font=("Arial", 9), bg="#e8f5e8")
         self.lbl_progress_detail.pack(anchor="w", padx=15, pady=(0,10))
 
@@ -1037,7 +1183,7 @@ class FBGroupsAppGUI:
             
             # Scrape
             self.lbl_status.config(text=f"🔍 Đang lấy Groups comments ({layout})...", fg="#fd7e14")
-            self.lbl_progress_detail.config(text="⏳ Đang expand và extract links từ Groups...")
+            self.lbl_progress_detail.config(text="⏳ Đang expand comments và extract data từ Groups (đã chọn 'Tất cả bình luận')...")
             
             comments = self.scraper.scrape_all_comments(limit=limit, resolve_uid=resolve_uid, 
                                                        progress_callback=self._progress_cb)
