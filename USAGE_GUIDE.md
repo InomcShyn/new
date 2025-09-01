@@ -163,4 +163,36 @@ expand_patterns = [
 | UI/UX | Cơ bản | Tốt | Rất tốt | **Xuất sắc** |
 | Xử lý lỗi | Kém | Tốt | Rất tốt | **Mạnh mẽ** |
 
-**Khuyến nghị: Sử dụng `fb_comment_scraper_robust.py` để có kết quả tốt nhất!** 🎯
+---
+
+## 🆕 **PHIÊN BẢN MỚI - FIX VẤN ĐỀ CỦA BẠN**
+
+### 🚨 **Vấn đề bạn gặp:**
+- URL redirect: `mbasic.facebook.com` → `m.facebook.com` 
+- Không tìm thấy comment (Found 0 potential main comment containers)
+- Đặc biệt với **Facebook Groups**
+
+### 🛠️ **2 Phiên Bản Mới:**
+
+#### 4. 📁 `fb_comment_scraper_hybrid.py` - **Hybrid Layout** 
+- ✅ **Auto-detect** mbasic vs mobile layout
+- ✅ **Adaptive selectors** cho từng layout
+- ✅ **Handle redirects** automatically
+- ✅ **Layout-specific logic** cho comment/reply
+
+#### 5. 📁 `fb_groups_comment_scraper.py` - **Groups Chuyên Dụng** ⭐⭐
+- ✅ **Tối ưu riêng cho Facebook Groups**
+- ✅ **Handle Groups security & permissions**  
+- ✅ **Groups-specific selectors**
+- ✅ **Mobile + mbasic support cho Groups**
+- ✅ **Advanced Groups comment structure**
+
+### 🎯 **Khuyến nghị cho trường hợp của bạn:**
+
+**Dùng `fb_groups_comment_scraper.py`** vì:
+1. 🏘️ **Chuyên dụng cho Groups** (link của bạn là Groups)
+2. 📱 **Handle mobile redirect** (mbasic → m.facebook.com)
+3. 🔧 **Groups-optimized selectors**
+4. 🛡️ **Better Groups permission handling**
+
+**Khuyến nghị chung: `fb_comment_scraper_robust.py` cho posts thường, `fb_groups_comment_scraper.py` cho Groups!** 🎯
