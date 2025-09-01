@@ -1114,6 +1114,144 @@ class EnhancedFacebookGroupsScraper:
         except: 
             pass
 
+    def save_comments_to_excel_enhanced(self, comments, filename="facebook_groups_comments_enhanced.xlsx"):
+        """Save comments to Excel with enhanced formatting"""
+        if not comments:
+            print("No comments to save")
+            return
+        
+        try:
+            import pandas as pd
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils.dataframe import dataframe_to_rows
+            
+            # Create DataFrame with the required structure
+            data = []
+            for comment in comments:
+                row = {
+                    'Cột 1': comment.get('Content', ''),
+                    'Tên ACC': comment.get('Name', 'Unknown'),
+                    'UID': comment.get('UID', 'Unknown'),
+                    'UID COMMENT': comment.get('ProfileLink', ''),
+                    'UID TỔNG': comment.get('UID', 'Unknown')  # Using UID as UID TỔNG
+                }
+                data.append(row)
+            
+            df = pd.DataFrame(data)
+            
+            # Create Excel file
+            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Comments', index=False)
+                
+                # Get the workbook and worksheet
+                workbook = writer.book
+                worksheet = writer.sheets['Comments']
+                
+                # Style the header row
+                header_font = Font(bold=True, color="FFFFFF")
+                header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                header_alignment = Alignment(horizontal="center", vertical="center")
+                
+                for cell in worksheet[1]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                
+                # Auto-adjust column widths
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    
+                    adjusted_width = min(max_length + 2, 100)  # Max width 100
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+                
+                # Add borders
+                thin_border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+                
+                for row in worksheet.iter_rows(min_row=1, max_row=len(comments)+1):
+                    for cell in row:
+                        cell.border = thin_border
+                        cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+            
+            print(f"✅ Comments saved to {filename}")
+            print(f"📊 Total comments saved: {len(comments)}")
+            
+            # Print preview
+            print("\n📋 PREVIEW OF SAVED DATA:")
+            print("=" * 120)
+            print(f"{'Cột 1':<50} {'Tên ACC':<20} {'UID':<20} {'UID COMMENT':<30}")
+            print("=" * 120)
+            
+            for i, comment in enumerate(comments[:5]):  # Show first 5 comments
+                content = comment.get('Content', '')[:45] + "..." if len(comment.get('Content', '')) > 45 else comment.get('Content', '')
+                name = comment.get('Name', 'Unknown')
+                uid = comment.get('UID', 'Unknown')
+                profile = comment.get('ProfileLink', '')[:25] + "..." if len(comment.get('ProfileLink', '')) > 25 else comment.get('ProfileLink', '')
+                
+                print(f"{content:<50} {name:<20} {uid:<20} {profile:<30}")
+            
+            if len(comments) > 5:
+                print(f"... and {len(comments) - 5} more comments")
+            
+            print("=" * 120)
+            
+        except ImportError as e:
+            print(f"❌ Error: {e}")
+            print("Please install required packages: pip install pandas openpyxl")
+        except Exception as e:
+            print(f"❌ Error saving to Excel: {e}")
+
+    def print_comments_summary_enhanced(self, comments):
+        """Print comments summary in the required format"""
+        if not comments:
+            print("No comments to display")
+            return
+        
+        print("\n" + "=" * 120)
+        print("📊 FACEBOOK GROUPS COMMENTS SUMMARY")
+        print("=" * 120)
+        print(f"{'Cột 1':<50} {'Tên ACC':<20} {'UID':<20} {'UID COMMENT':<30}")
+        print("=" * 120)
+        
+        for i, comment in enumerate(comments, 1):
+            content = comment.get('Content', '')
+            name = comment.get('Name', 'Unknown')
+            uid = comment.get('UID', 'Unknown')
+            profile = comment.get('ProfileLink', '')
+            
+            # Truncate content if too long
+            if len(content) > 45:
+                content = content[:45] + "..."
+            
+            # Truncate profile if too long
+            if len(profile) > 25:
+                profile = profile[:25] + "..."
+            
+            print(f"{content:<50} {name:<20} {uid:<20} {profile:<30}")
+            
+            # Add separator every 10 comments
+            if i % 10 == 0:
+                print("-" * 120)
+        
+        print("=" * 120)
+        print(f"📈 Total Comments: {len(comments)}")
+        print(f"👥 Unique Users: {len(set(c.get('Name', '') for c in comments))}")
+        print(f"🔗 Profiles Found: {len([c for c in comments if c.get('ProfileLink')])}")
+        print("=" * 120)
+
 # ----------------------------
 # Enhanced Groups-Optimized GUI
 # ----------------------------
@@ -1292,92 +1430,96 @@ class EnhancedFBGroupsAppGUI:
         self.lbl_status.config(text=f"📈 Đang xử lý Enhanced Groups... Đã lấy {count} comment/reply", fg="#28a745")
         self.root.update_idletasks()
 
-    def _scrape_worker(self, url, cookie_str, file_out, limit, headless, resolve_uid, enhanced_extraction):
+    def _scrape_worker(self):
+        """Worker thread for scraping"""
         try:
-            # Initialize
-            self.lbl_status.config(text="🌐 Khởi tạo Enhanced Groups scraper...", fg="#fd7e14")
-            self.scraper = EnhancedFacebookGroupsScraper(cookie_str, headless=headless)
+            self.status_var.set("🔄 Starting scraping...")
+            self.progress_var.set(0)
             
-            if self._stop_flag: return
+            # Get parameters
+            url = self.url_entry.get().strip()
+            cookies = self.cookies_text.get("1.0", tk.END).strip()
+            limit = int(self.limit_entry.get()) if self.limit_entry.get().isdigit() else 0
+            resolve_uid = self.resolve_uid_var.get()
+            enhanced = self.enhanced_var.get()
             
-            # Load post
-            self.lbl_status.config(text="📄 Đang tải bài viết Groups...", fg="#fd7e14")
-            self.lbl_progress_detail.config(text="⏳ Đang kết nối và detect layout tối ưu cho Groups...")
-            success = self.scraper.load_post(url)
-            
-            if not success:
-                self.lbl_status.config(text="❌ Không thể tải bài viết Groups", fg="#dc3545")
-                self.lbl_progress_detail.config(text="💡 Groups thường yêu cầu: 1) Cookie valid, 2) Quyền truy cập nhóm, 3) Bài viết public trong nhóm")
+            if not url:
+                self.status_var.set("❌ Please enter a URL")
                 return
             
-            # Show detected layout
-            layout = getattr(self.scraper, 'current_layout', 'unknown')
-            self.lbl_progress_detail.config(text=f"🎯 Layout detected: {layout} - Enhanced extraction enabled...")
-                
-            if self._stop_flag: return
+            if not cookies:
+                self.status_var.set("❌ Please enter cookies")
+                return
             
-            # Scrape with enhanced methods
-            self.lbl_status.config(text=f"🔍 Đang lấy Enhanced Groups comments ({layout})...", fg="#fd7e14")
-            self.lbl_progress_detail.config(text="⏳ Đang expand và extract comments với tính năng nâng cao...")
+            # Initialize scraper
+            self.scraper = EnhancedFacebookGroupsScraper()
             
-            if enhanced_extraction:
-                comments = self.scraper.scrape_all_comments_enhanced(limit=limit, resolve_uid=resolve_uid, 
-                                                                   progress_callback=self._progress_cb)
+            # Set cookies
+            if cookies:
+                self.status_var.set("🍪 Setting cookies...")
+                self.scraper.set_cookies_from_text(cookies)
+            
+            # Start scraping
+            self.status_var.set("🌐 Loading page...")
+            
+            if enhanced:
+                comments = self.scraper.scrape_all_comments_enhanced(limit=limit, resolve_uid=resolve_uid)
             else:
-                # Fallback to original method
-                comments = self.scraper.scrape_all_comments(limit=limit, resolve_uid=resolve_uid, 
-                                                          progress_callback=self._progress_cb)
+                comments = self.scraper.scrape_all_comments(limit=limit, resolve_uid=resolve_uid)
             
-            if self._stop_flag: return
+            if not comments:
+                self.status_var.set("⚠️ No comments found")
+                return
             
-            # Save
-            self.lbl_status.config(text="💾 Đang lưu Enhanced Groups data...", fg="#fd7e14")
+            # Display results
+            self.status_var.set(f"✅ Found {len(comments)} comments")
             
-            if comments:
-                df = pd.DataFrame(comments)
+            # Print summary in required format
+            self.scraper.print_comments_summary_enhanced(comments)
+            
+            # Save to Excel
+            filename = f"facebook_groups_comments_{int(time.time())}.xlsx"
+            self.scraper.save_comments_to_excel_enhanced(comments, filename)
+            
+            # Update GUI
+            self.result_text.delete("1.0", tk.END)
+            self.result_text.insert("1.0", f"✅ Scraping completed successfully!\n\n")
+            self.result_text.insert(tk.END, f"📊 Total comments: {len(comments)}\n")
+            self.result_text.insert(tk.END, f"👥 Unique users: {len(set(c.get('Name', '') for c in comments))}\n")
+            self.result_text.insert(tk.END, f"🔗 Profiles found: {len([c for c in comments if c.get('ProfileLink')])}\n")
+            self.result_text.insert(tk.END, f"💾 Saved to: {filename}\n\n")
+            
+            # Show sample data
+            self.result_text.insert(tk.END, "📋 SAMPLE DATA:\n")
+            self.result_text.insert(tk.END, "=" * 100 + "\n")
+            self.result_text.insert(tk.END, f"{'Cột 1':<40} {'Tên ACC':<15} {'UID':<15} {'UID COMMENT':<30}\n")
+            self.result_text.insert(tk.END, "=" * 100 + "\n")
+            
+            for comment in comments[:10]:  # Show first 10 comments
+                content = comment.get('Content', '')[:35] + "..." if len(comment.get('Content', '')) > 35 else comment.get('Content', '')
+                name = comment.get('Name', 'Unknown')
+                uid = comment.get('UID', 'Unknown')
+                profile = comment.get('ProfileLink', '')[:25] + "..." if len(comment.get('ProfileLink', '')) > 25 else comment.get('ProfileLink', '')
                 
-                # Add metadata
-                df.insert(0, 'STT', range(1, len(df) + 1))
-                df['Source'] = 'Enhanced Facebook Groups'
-                df['ScrapedAt'] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
-                df['EnhancedExtraction'] = enhanced_extraction
-                
-                # File handling
-                if not file_out.lower().endswith((".xlsx", ".csv")):
-                    file_out += ".xlsx"
-                
-                if file_out.lower().endswith(".csv"):
-                    df.to_csv(file_out, index=False, encoding="utf-8-sig")
-                else:
-                    df.to_excel(file_out, index=False, engine="openpyxl")
-                
-                # Statistics
-                comments_count = len([c for c in comments if c['Type'] == 'Comment'])
-                replies_count = len([c for c in comments if c['Type'] == 'Reply'])
-                unique_users = len(set(c['Name'] for c in comments if c['Name'] != 'Unknown'))
-                verified_users = len([c for c in comments if c.get('Verified', False)])
-                avg_length = sum(len(c['Content']) for c in comments) // len(comments) if comments else 0
-                
-                self.lbl_status.config(text=f"🎉 ENHANCED GROUPS SCRAPING HOÀN THÀNH!", fg="#28a745")
-                self.lbl_progress_detail.config(text=f"📊 Kết quả: {comments_count} comments + {replies_count} replies | {unique_users} users ({verified_users} verified) | TB: {avg_length} chars | {layout} layout | Enhanced: {enhanced_extraction} | File: {file_out}")
-                
-            else:
-                self.lbl_status.config(text="⚠️ Không tìm thấy comment trong Groups", fg="#ffc107")
-                self.lbl_progress_detail.config(text=f"💡 Layout: {layout} | Enhanced: {enhanced_extraction} | Thử: 1) Kiểm tra quyền truy cập Groups, 2) Tắt headless, 3) Xem debug file")
-                
+                self.result_text.insert(tk.END, f"{content:<40} {name:<15} {uid:<15} {profile:<30}\n")
+            
+            if len(comments) > 10:
+                self.result_text.insert(tk.END, f"... and {len(comments) - 10} more comments\n")
+            
+            self.result_text.insert(tk.END, "=" * 100 + "\n")
+            
+            self.progress_var.set(100)
+            
         except Exception as e:
-            error_msg = str(e)[:120]
-            self.lbl_status.config(text=f"❌ Lỗi Enhanced Groups scraping: {error_msg}...", fg="#dc3545")
-            self.lbl_progress_detail.config(text="🔍 Xem console để biết chi tiết. Enhanced extraction có thể cần thêm thời gian.")
-            print(f"Enhanced Groups scraping error: {e}")
-            import traceback
-            traceback.print_exc()
+            error_msg = f"❌ Error: {str(e)}"
+            self.status_var.set(error_msg)
+            self.result_text.delete("1.0", tk.END)
+            self.result_text.insert("1.0", error_msg)
+            print(f"Scraping error: {e}")
         finally:
-            self.progress_bar.stop()
-            if self.scraper: 
+            if hasattr(self, 'scraper'):
                 self.scraper.close()
-            self.btn_start.config(state=tk.NORMAL)
-            self.btn_stop.config(state=tk.DISABLED)
+            self.scraping = False
 
 # ----------------------------
 # Run enhanced app
