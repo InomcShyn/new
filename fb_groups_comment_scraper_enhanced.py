@@ -244,7 +244,12 @@ class EnhancedFacebookGroupsScraper:
                 ".//h3/a[contains(@href, 'facebook.com/')]",
                 ".//span/a[contains(@href, 'facebook.com/')]",
                 ".//div[@role='link']/a[contains(@href, 'facebook.com/')]",
-                ".//a[contains(@data-sigil, 'profile')]"
+                ".//a[contains(@data-sigil, 'profile')]",
+                # Additional selectors for mobile layout
+                ".//a[contains(@href, 'facebook.com/') and not(contains(@href, 'groups'))]",
+                ".//strong[not(.//a)]//a[contains(@href, 'facebook.com/')]",
+                ".//h3[not(.//a)]//a[contains(@href, 'facebook.com/')]",
+                ".//span[not(.//a)]//a[contains(@href, 'facebook.com/')]"
             ]
             
             for selector in profile_selectors:
@@ -259,7 +264,7 @@ class EnhancedFacebookGroupsScraper:
                             2 <= len(link_text) <= 100 and 
                             not link_text.startswith('http') and
                             not link_text.isdigit() and
-                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment', 'thích', 'trả lời', 'chia sẻ', 'bình luận']) and
+                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment', 'thích', 'trả lời', 'chia sẻ', 'bình luận', 'groups', 'nhóm']) and
                             validate_username(link_text)):
                             
                             user_info['name'] = link_text
@@ -296,7 +301,10 @@ class EnhancedFacebookGroupsScraper:
                     ".//h3[not(.//a)]",
                     ".//span[@data-sigil='comment-author']",
                     ".//div[@data-sigil='comment-author']",
-                    ".//span[contains(@class, 'author')]"
+                    ".//span[contains(@class, 'author')]",
+                    ".//div[contains(@class, 'author')]",
+                    ".//strong[contains(text(), ' ') and string-length(text()) > 3]",
+                    ".//h3[contains(text(), ' ') and string-length(text()) > 3]"
                 ]
                 
                 for selector in display_selectors:
@@ -340,7 +348,8 @@ class EnhancedFacebookGroupsScraper:
                     mention_patterns = [
                         r'@([a-zA-Z0-9_À-ỹ]+)',
                         r'^([A-Z][a-zÀ-ỹ]+(?:\s+[A-Z][a-zÀ-ỹ]+)*):',
-                        r'Reply to ([A-Z][a-zÀ-ỹ]+(?:\s+[A-Z][a-zÀ-ỹ]+)*):'
+                        r'Reply to ([A-Z][a-zÀ-ỹ]+(?:\s+[A-Z][a-zÀ-ỹ]+)*):',
+                        r'([A-Z][a-zÀ-ỹ]+(?:\s+[A-Z][a-zÀ-ỹ]+)*)\s+[0-9]+'  # Name followed by numbers
                     ]
                     
                     for pattern in mention_patterns:
@@ -458,13 +467,13 @@ class EnhancedFacebookGroupsScraper:
             return ""
 
     def is_ui_only_content(self, text):
-        """Enhanced check for UI-only content"""
-        if not text or len(text.strip()) < 5:
+        """Enhanced check for UI-only content - Less strict for mobile"""
+        if not text or len(text.strip()) < 3:  # Reduced from 5 to 3
             return True
         
         text_clean = text.lower().strip()
         
-        # UI patterns
+        # UI patterns - Less strict for mobile layout
         ui_patterns = [
             r'^(like|reply|share|comment|translate|hide|report|block)(\s+\d+)?\s*$',
             r'^(thích|trả lời|chia sẻ|bình luận|dịch|ẩn|báo cáo|chặn)(\s+\d+)?\s*$',
@@ -477,15 +486,15 @@ class EnhancedFacebookGroupsScraper:
             r'^(group|nhóm|groups|các nhóm)\s*$',
             r'^[^\wÀ-ỹ]*$',  # Only punctuation/symbols
             r'^\d+$',  # Only numbers
-            r'^[a-z]{1,3}\s*$'  # Very short text
+            r'^[a-z]{1,2}\s*$'  # Very short text - reduced from 3 to 2
         ]
         
         for pattern in ui_patterns:
             if re.match(pattern, text_clean):
                 return True
         
-        # Check if it's just repeated characters
-        if len(set(text_clean)) <= 3 and len(text_clean) > 5:
+        # Check if it's just repeated characters - Less strict
+        if len(set(text_clean)) <= 2 and len(text_clean) > 10:  # Increased threshold
             return True
         
         return False
@@ -833,12 +842,21 @@ class EnhancedFacebookGroupsScraper:
                 # Enhanced content extraction
                 content = self.extract_enhanced_comment_content(element, username)
                 
-                if not content or len(content) < 8 or self.is_ui_only_content(content):
+                if not content or len(content) < 5 or self.is_ui_only_content(content):
                     print(f"  ✗ Skipped: invalid content")
                     continue
                 
                 # Enhanced comment type determination
                 comment_type = self.determine_comment_type_enhanced(element, all_comment_elements, i)
+                
+                # Try to extract username from content if still unknown
+                if username == 'Unknown' and self.current_layout == "mobile":
+                    extracted_name = self.extract_username_from_content(content)
+                    if extracted_name:
+                        username = extracted_name
+                        user_info['name'] = extracted_name
+                        # Update content to remove the name
+                        content = self.remove_username_from_content(content, extracted_name)
                 
                 # Create comment data
                 comment_data = {
@@ -878,6 +896,47 @@ class EnhancedFacebookGroupsScraper:
         
         return final_comments
 
+    def extract_username_from_content(self, content):
+        """Extract username from content using various patterns"""
+        if not content:
+            return None
+        
+        # Patterns to extract username from content - Simplified and improved
+        patterns = [
+            (r'^([A-Z][a-zA-ZÀ-ỹ\s]+):\s*(.+)', 'Name: content'),
+            (r'^@([a-zA-Z0-9_À-ỹ]+)\s+(.+)', '@username content'),
+            (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s+[0-9]+\s+(.+)', 'Name 123 content'),
+            (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s+[0-9]+$', 'Name 123'),
+            (r'^([A-Z][a-zA-ZÀ-ỹ\s]+)\s*$', 'Name only'),
+        ]
+        
+        for pattern, description in patterns:
+            match = re.match(pattern, content)
+            if match:
+                potential_name = match.group(1).strip()
+                if validate_username(potential_name):
+                    return potential_name
+        
+        return None
+
+    def remove_username_from_content(self, content, username):
+        """Remove username from content"""
+        if not content or not username:
+            return content
+        
+        # Remove username from beginning
+        if content.startswith(username):
+            content = content[len(username):].strip()
+        
+        # Remove username with word boundaries
+        content = re.sub(rf'\b{re.escape(username)}\b', '', content, count=1).strip()
+        
+        # Remove leading/trailing punctuation
+        content = re.sub(r'^[:\s]+', '', content)
+        content = re.sub(r'[\s:]+$', '', content)
+        
+        return content
+
     def cleanup_groups_comments_enhanced(self, comments):
         """Enhanced cleanup with better deduplication and validation"""
         print("=== CLEANING UP ENHANCED GROUPS COMMENTS ===")
@@ -895,12 +954,31 @@ class EnhancedFacebookGroupsScraper:
             
             is_duplicate = any(sig in final_seen for sig in signatures if sig)
             
-            # Enhanced validation
+            # Enhanced validation - Less strict for mobile layout
             if (not is_duplicate and 
                 comment['Content'] and 
-                len(comment['Content']) >= 8 and
-                comment['Name'] != 'Unknown' and
+                len(comment['Content']) >= 5 and  # Reduced from 8 to 5
                 not self.is_ui_only_content(comment['Content'])):
+                
+                # For mobile layout, be more lenient with username validation
+                if self.current_layout == "mobile" and comment['Name'] == 'Unknown':
+                    # Try to extract name from content if possible
+                    content = comment['Content']
+                    # Look for patterns like "Name: content" or "@name content"
+                    name_patterns = [
+                        r'^([A-Z][a-zÀ-ỹ]+(?:\s+[A-Z][a-zÀ-ỹ]+)*):\s*(.+)',
+                        r'^@([a-zA-Z0-9_À-ỹ]+)\s+(.+)',
+                        r'^([A-Z][a-zÀ-ỹ]+(?:\s+[A-Z][a-zÀ-ỹ]+)*)\s+[0-9]+\s+(.+)'
+                    ]
+                    
+                    for pattern in name_patterns:
+                        match = re.match(pattern, content)
+                        if match:
+                            potential_name = match.group(1)
+                            if validate_username(potential_name):
+                                comment['Name'] = potential_name
+                                comment['Content'] = match.group(2).strip()
+                                break
                 
                 cleaned.append(comment)
                 for sig in signatures:
@@ -916,9 +994,65 @@ class EnhancedFacebookGroupsScraper:
         print(f"Final cleaned comments: {len(cleaned)}")
         return cleaned
 
+    def is_ui_only_content(self, text):
+        """Enhanced check for UI-only content - Less strict for mobile"""
+        if not text or len(text.strip()) < 3:  # Reduced from 5 to 3
+            return True
+        
+        text_clean = text.lower().strip()
+        
+        # UI patterns - Less strict for mobile layout
+        ui_patterns = [
+            r'^(like|reply|share|comment|translate|hide|report|block)(\s+\d+)?\s*$',
+            r'^(thích|trả lời|chia sẻ|bình luận|dịch|ẩn|báo cáo|chặn)(\s+\d+)?\s*$',
+            r'^\d+\s*(min|minutes?|hours?|days?|phút|giờ|ngày)\s*(ago|trước)?\s*$',
+            r'^(top fan|most relevant|newest|all comments|view more|see more)\s*$',
+            r'^(bình luận hàng đầu|xem thêm|hiển thị thêm)\s*$',
+            r'^\d+\s*(like|love|reaction|thích|yêu|cảm xúc)\s*$',
+            r'^(see translation|xem bản dịch|translate|dịch)\s*$',
+            r'^(write a comment|viết bình luận|comment|bình luận)\s*$',
+            r'^(group|nhóm|groups|các nhóm)\s*$',
+            r'^[^\wÀ-ỹ]*$',  # Only punctuation/symbols
+            r'^\d+$',  # Only numbers
+            r'^[a-z]{1,2}\s*$'  # Very short text - reduced from 3 to 2
+        ]
+        
+        for pattern in ui_patterns:
+            if re.match(pattern, text_clean):
+                return True
+        
+        # Check if it's just repeated characters - Less strict
+        if len(set(text_clean)) <= 2 and len(text_clean) > 10:  # Increased threshold
+            return True
+        
+        return False
+
     def scrape_all_comments_enhanced(self, limit=0, resolve_uid=True, progress_callback=None):
         """Enhanced main scraping orchestrator"""
         print(f"=== STARTING ENHANCED GROUPS SCRAPING ===")
+        
+        # Step 1: Expand all content
+        self.expand_groups_comments()
+        
+        if self._stop_flag:
+            return []
+        
+        # Step 2: Extract comments with enhanced methods
+        comments = self.extract_groups_comments_enhanced()
+        
+        # Step 3: Apply limit
+        if limit > 0:
+            comments = comments[:limit]
+        
+        # Step 4: Progress reporting
+        if progress_callback:
+            progress_callback(len(comments))
+        
+        return comments
+
+    def scrape_all_comments(self, limit=0, resolve_uid=True, progress_callback=None):
+        """Main scraping orchestrator for groups - Fallback method"""
+        print(f"=== STARTING GROUPS SCRAPING (FALLBACK) ===")
         
         # Step 1: Expand all content
         self.expand_groups_comments()
