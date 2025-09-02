@@ -1,4 +1,5 @@
-# fb_groups_comment_scraper.py - Specialized for Facebook Groups
+# fb_groups_scraper_fixed.py - Fixed Facebook Groups Scraper
+
 import time, random, threading, re, requests, pandas as pd
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -12,8 +13,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # ----------------------------
-# Helper utils
+# Helper utils (unchanged)
 # ----------------------------
+
 def parse_cookies_to_list(cookie_str):
     cookies_list = []
     for pair in cookie_str.split(';'):
@@ -36,7 +38,6 @@ def clean_text(text):
     if not text:
         return ""
     text = re.sub(r'\s+', ' ', text.strip())
-    # Remove UI elements but preserve Vietnamese text
     ui_patterns = [
         r'\b(Like|Reply|Share|Comment|Translate|Hide|Report|Block)\b',
         r'\b(Thích|Trả lời|Chia sẻ|Bình luận|Dịch|Ẩn|Báo cáo|Chặn)\b',
@@ -48,8 +49,9 @@ def clean_text(text):
     return text.strip()
 
 # ----------------------------
-# Facebook Groups Specialized Scraper
+# FIXED Facebook Groups Scraper
 # ----------------------------
+
 class FacebookGroupsScraper:
     def __init__(self, cookie_str, headless=True):
         options = Options()
@@ -61,10 +63,9 @@ class FacebookGroupsScraper:
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-blink-features=AutomationControlled")
-        
-        # User agent that works well with Facebook groups
-        options.add_argument("user-agent=Mozilla/5.0 (Android 10; Mobile; rv:109.0) Gecko/111.0 Firefox/109.0")
-        options.add_argument("window-size=414,896")
+
+        # Better user agent for modern Facebook
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
         options.add_experimental_option('useAutomationExtension', False)
         
@@ -80,8 +81,8 @@ class FacebookGroupsScraper:
             self._login_with_cookies()
 
     def _login_with_cookies(self):
-        # Start with mobile Facebook for groups
-        self.driver.get("https://m.facebook.com")
+        # Start with regular Facebook for better groups access
+        self.driver.get("https://www.facebook.com")
         time.sleep(3)
         
         for c in self.cookies_list:
@@ -95,21 +96,21 @@ class FacebookGroupsScraper:
             except: 
                 pass
         
-        self.driver.get("https://m.facebook.com")
+        self.driver.get("https://www.facebook.com")
         time.sleep(4)
 
     def load_post(self, post_url):
         print(f"Loading groups post: {post_url}")
         
-        # For groups, try both mobile and mbasic
         urls_to_try = []
         
         if "groups/" in post_url:
-            # Create both mobile and mbasic versions
-            mobile_url = post_url.replace("mbasic.facebook.com", "m.facebook.com").replace("www.facebook.com", "m.facebook.com")
-            mbasic_url = post_url.replace("m.facebook.com", "mbasic.facebook.com").replace("www.facebook.com", "mbasic.facebook.com")
+            # Try www first for groups, then mobile, then mbasic
+            www_url = post_url.replace("mbasic.facebook.com", "www.facebook.com").replace("m.facebook.com", "www.facebook.com")
+            mobile_url = post_url.replace("www.facebook.com", "m.facebook.com").replace("mbasic.facebook.com", "m.facebook.com")
+            mbasic_url = post_url.replace("www.facebook.com", "mbasic.facebook.com").replace("m.facebook.com", "mbasic.facebook.com")
             
-            urls_to_try = [mobile_url, mbasic_url]
+            urls_to_try = [www_url, mobile_url, mbasic_url]
         else:
             urls_to_try = [post_url]
         
@@ -140,20 +141,12 @@ class FacebookGroupsScraper:
                     print("❌ Not logged in with this URL, trying next...")
                     continue
                 
-                # Check if we can see group content
-                group_indicators = self.driver.find_elements(By.XPATH, 
-                    "//div[contains(text(),'group') or contains(text(),'nhóm') or contains(text(),'Group')]")
+                print(f"✅ Successfully loaded groups post with {self.current_layout} layout")
                 
-                if group_indicators or "groups/" in current_url:
-                    print(f"✅ Successfully loaded groups post with {self.current_layout} layout")
-                    
-                    # Try to switch to "Tất cả bình luận" (All comments) view
-                    self._switch_to_all_comments()
-                    
-                    return True
-                else:
-                    print("⚠️ No group indicators found, but proceeding...")
-                    return True
+                # Try to switch to "All comments" view
+                self._switch_to_all_comments()
+                
+                return True
                     
             except Exception as e:
                 print(f"Failed to load {url_attempt}: {e}")
@@ -167,34 +160,29 @@ class FacebookGroupsScraper:
         print("🔄 Attempting to switch to 'All comments' view...")
         
         try:
-            # Wait a bit for page to fully load
             time.sleep(3)
             
-            # Try to find and click "Tất cả bình luận" or "All comments" button
+            # Enhanced selectors for all comments button
             all_comments_selectors = [
                 # Vietnamese selectors
-                "//a[contains(text(),'Tất cả bình luận')]",
                 "//span[contains(text(),'Tất cả bình luận')]",
                 "//div[contains(text(),'Tất cả bình luận')]",
+                "//a[contains(text(),'Tất cả bình luận')]",
                 "//button[contains(text(),'Tất cả bình luận')]",
                 
                 # English selectors
-                "//a[contains(text(),'All comments')]",
                 "//span[contains(text(),'All comments')]",
                 "//div[contains(text(),'All comments')]",
+                "//a[contains(text(),'All comments')]",
                 "//button[contains(text(),'All comments')]",
                 
-                # Mobile specific selectors
-                "//div[@role='button' and contains(text(),'Tất cả bình luận')]",
-                "//div[@role='button' and contains(text(),'All comments')]",
-                "//div[@data-sigil='comment-sort']//a[contains(text(),'Tất cả')]",
-                "//div[@data-sigil='comment-sort']//a[contains(text(),'All')]",
+                # Role-based selectors
+                "//div[@role='button' and (contains(text(),'Tất cả') or contains(text(),'All'))]",
+                "//span[@role='button' and (contains(text(),'Tất cả') or contains(text(),'All'))]",
                 
-                # Alternative selectors for comment sorting
-                "//a[contains(@href,'sort') and contains(text(),'Tất cả')]",
-                "//a[contains(@href,'sort') and contains(text(),'All')]",
-                "//a[contains(@href,'comments') and contains(text(),'Tất cả')]",
-                "//a[contains(@href,'comments') and contains(text(),'All')]"
+                # Aria-label selectors
+                "//div[contains(@aria-label,'comment') and contains(text(),'All')]",
+                "//div[contains(@aria-label,'bình luận') and contains(text(),'Tất cả')]"
             ]
             
             clicked = False
@@ -214,7 +202,7 @@ class FacebookGroupsScraper:
                                 element.click()
                                 clicked = True
                                 print("  ✅ Successfully clicked 'All comments' button")
-                                time.sleep(3)  # Wait for comments to load
+                                time.sleep(4)  # Wait for comments to load
                                 break
                             except:
                                 # Try JavaScript click
@@ -222,7 +210,7 @@ class FacebookGroupsScraper:
                                     self.driver.execute_script("arguments[0].click();", element)
                                     clicked = True
                                     print("  ✅ Successfully clicked 'All comments' button (JS)")
-                                    time.sleep(3)
+                                    time.sleep(4)
                                     break
                                 except:
                                     continue
@@ -242,260 +230,8 @@ class FacebookGroupsScraper:
             print(f"  ⚠️ Error switching to 'All comments' view: {e}")
             print("  Proceeding with current view...")
 
-    def get_groups_selectors(self):
-        """Get selectors optimized for Facebook Groups"""
-        if self.current_layout == "mobile":
-            return {
-                'expand_links': [
-                    # Mobile groups expand links
-                    "//a[contains(text(),'View more comments')]",
-                    "//a[contains(text(),'View previous comments')]",
-                    "//a[contains(text(),'View more replies')]",
-                    "//a[contains(text(),'Show more')]",
-                    "//a[contains(text(),'See more')]",
-                    "//a[contains(text(),'Xem thêm')]",
-                    "//a[contains(text(),'Hiển thị thêm')]",
-                    "//div[@role='button' and (contains(text(),'more') or contains(text(),'thêm'))]",
-                    "//span[contains(text(),'View') and contains(text(),'more')]/ancestor::*[@role='button' or self::a][1]",
-                    "//div[@data-sigil='more' or @data-sigil='expand']",
-                    "//*[contains(@data-sigil,'comment')]//*[contains(text(),'more') or contains(text(),'thêm')]"
-                ],
-                'comment_containers': [
-                    # Mobile groups comment containers
-                    "//div[@data-sigil='comment']",
-                    "//div[@data-sigil='comment-body']", 
-                    "//div[contains(@data-ft, 'comment')]",
-                    "//div[contains(@id, 'comment_')]",
-                    "//article//div[.//a[contains(@href, 'profile.php')]]",
-                    "//div[@role='article']//div[.//a[contains(@href, 'profile.php')]]",
-                    "//div[contains(@class, 'story_body_container')]//div[.//a[contains(@href, 'profile.php')]]",
-                    "//div[.//strong/a[contains(@href, 'profile.php')]]",
-                    "//div[.//h3/a[contains(@href, 'profile.php')]]",
-                    "//div[.//span/a[contains(@href, 'profile.php')]]",
-                    
-                    # New mobile selectors based on current Facebook structure
-                    "//div[contains(@class, 'm') and .//span[contains(@class, 'f20')]]",  # Based on your div example
-                    "//div[contains(@class, 'm') and .//div[contains(@class, 'native-text')]]",
-                    "//div[@data-action-id and .//span[contains(@class, 'f20')]]",
-                    "//div[@data-type='text' and .//span[contains(@class, 'f20')]]",
-                    
-                    # Broader selectors for groups
-                    "//div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 25]",
-                    "//div[string-length(normalize-space(text())) > 40 and .//a[contains(@href, 'profile')]]",
-                    
-                    # Very broad mobile selectors
-                    "//div[contains(@class, 'm') and string-length(normalize-space(text())) > 20]",
-                    "//div[@data-action-id and string-length(normalize-space(text())) > 15]"
-                ]
-            }
-        else:
-            # mbasic layout
-            return {
-                'expand_links': [
-                    "//a[contains(text(),'View more comments')]",
-                    "//a[contains(text(),'View previous comments')]",
-                    "//a[contains(text(),'View more replies')]", 
-                    "//a[contains(text(),'Show more')]",
-                    "//a[contains(text(),'See more')]",
-                    "//a[contains(text(),'Xem thêm')]",
-                    "//a[contains(@href,'comment') and contains(text(),'more')]",
-                    "//a[contains(@href,'reply') and contains(text(),'more')]"
-                ],
-                'comment_containers': [
-                    "//div[@data-ft and contains(@data-ft, 'comment')]",
-                    "//div[contains(@id, 'comment_')]",
-                    "//table//div[.//a[contains(@href, 'profile.php')]]",
-                    "//div[.//a[contains(@href, 'profile.php?id=')]]",
-                    "//div[.//a[contains(@href, 'user.php?id=')]]",
-                    "//div[.//h3/a[contains(@href, 'profile.php')]]"
-                ]
-            }
-
-    def expand_groups_comments(self, max_iterations=120):
-        """Specialized expansion for Facebook Groups"""
-        print(f"=== EXPANDING GROUPS COMMENTS ({self.current_layout}) ===")
-        
-        selectors = self.get_groups_selectors()
-        expand_selectors = selectors['expand_links']
-        
-        iteration = 0
-        consecutive_failures = 0
-        total_expansions = 0
-        
-        # First, try to find and click "View more comments" or similar buttons
-        print("🔍 Looking for initial comment expansion buttons...")
-        self._click_initial_expand_buttons()
-        
-        while iteration < max_iterations and consecutive_failures < 8:
-            if self._stop_flag:
-                break
-                
-            iteration += 1
-            expanded_this_round = 0
-            
-            print(f"[Iteration {iteration}] Searching for expand links...")
-            
-            # Scroll to bottom
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(random.uniform(2, 3))
-            
-            # Also try scrolling up a bit to trigger lazy loading
-            if iteration % 3 == 0:
-                self.driver.execute_script("window.scrollBy(0, -200);")
-                time.sleep(1)
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(2)
-            
-            # Find expandable elements
-            expandable_elements = []
-            for selector in expand_selectors:
-                try:
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                    for elem in elements:
-                        try:
-                            if elem.is_displayed() and elem.is_enabled():
-                                elem_text = elem.text.strip().lower()
-                                # Validate expand keywords
-                                expand_keywords = ['view', 'more', 'show', 'see', 'xem', 'thêm', 'hiển thị', 'comment', 'reply', 'bình luận', 'phản hồi']
-                                if any(keyword in elem_text for keyword in expand_keywords):
-                                    if elem not in expandable_elements:
-                                        expandable_elements.append(elem)
-                        except:
-                            continue
-                except:
-                    continue
-            
-            print(f"  Found {len(expandable_elements)} expandable elements")
-            
-            # Click expandable elements
-            for i, elem in enumerate(expandable_elements):
-                if self._stop_flag:
-                    break
-                    
-                try:
-                    elem_text = elem.text.strip()
-                    print(f"    Attempting {i+1}/{len(expandable_elements)}: '{elem_text}'")
-                    
-                    # Scroll into view
-                    self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", elem)
-                    time.sleep(1.5)
-                    
-                    # Try multiple click methods
-                    click_success = False
-                    
-                    # Method 1: Regular click
-                    try:
-                        elem.click()
-                        click_success = True
-                    except:
-                        pass
-                    
-                    # Method 2: JavaScript click
-                    if not click_success:
-                        try:
-                            self.driver.execute_script("arguments[0].click();", elem)
-                            click_success = True
-                        except:
-                            pass
-                    
-                    # Method 3: Action chains click
-                    if not click_success:
-                        try:
-                            from selenium.webdriver.common.action_chains import ActionChains
-                            ActionChains(self.driver).move_to_element(elem).click().perform()
-                            click_success = True
-                        except:
-                            pass
-                    
-                    if click_success:
-                        expanded_this_round += 1
-                        print(f"    ✓ Successfully clicked")
-                        time.sleep(random.uniform(2, 4))
-                    else:
-                        print(f"    ✗ All click methods failed")
-                    
-                except Exception as e:
-                    print(f"    ✗ Error clicking: {e}")
-                    continue
-            
-            total_expansions += expanded_this_round
-            
-            if expanded_this_round > 0:
-                print(f"✓ Expanded {expanded_this_round} elements in iteration {iteration}")
-                consecutive_failures = 0
-            else:
-                consecutive_failures += 1
-                print(f"✗ No expansion in iteration {iteration} (consecutive failures: {consecutive_failures})")
-        
-        print(f"=== EXPANSION COMPLETE: {total_expansions} total expansions ===")
-        
-        # Final loading wait
-        for _ in range(3):
-            if self._stop_flag:
-                break
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-
-    def _click_initial_expand_buttons(self):
-        """Click initial comment expansion buttons to show more comments"""
-        try:
-            # Look for initial comment expansion buttons
-            initial_expand_selectors = [
-                # Vietnamese
-                "//a[contains(text(),'Xem bình luận')]",
-                "//a[contains(text(),'Xem thêm bình luận')]",
-                "//a[contains(text(),'Hiển thị bình luận')]",
-                "//div[contains(text(),'Xem bình luận')]",
-                "//span[contains(text(),'Xem bình luận')]",
-                
-                # English
-                "//a[contains(text(),'View comments')]",
-                "//a[contains(text(),'View more comments')]",
-                "//a[contains(text(),'Show comments')]",
-                "//div[contains(text(),'View comments')]",
-                "//span[contains(text(),'View comments')]",
-                
-                # Mobile specific
-                "//div[@role='button' and contains(text(),'Xem bình luận')]",
-                "//div[@role='button' and contains(text(),'View comments')]",
-                "//div[@data-sigil='comment-expand']//a[contains(text(),'Xem')]",
-                "//div[@data-sigil='comment-expand']//a[contains(text(),'View')]"
-            ]
-            
-            for selector in initial_expand_selectors:
-                try:
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                    for element in elements:
-                        if element.is_displayed() and element.is_enabled():
-                            print(f"  Found initial expand button: {element.text}")
-                            
-                            # Scroll into view
-                            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
-                            time.sleep(1)
-                            
-                            # Try to click
-                            try:
-                                element.click()
-                                print("  ✅ Successfully clicked initial expand button")
-                                time.sleep(3)  # Wait for comments to load
-                                break
-                            except:
-                                # Try JavaScript click
-                                try:
-                                    self.driver.execute_script("arguments[0].click();", element)
-                                    print("  ✅ Successfully clicked initial expand button (JS)")
-                                    time.sleep(3)
-                                    break
-                                except:
-                                    continue
-                except:
-                    continue
-                    
-        except Exception as e:
-            print(f"  ⚠️ Error clicking initial expand buttons: {e}")
-
     def extract_groups_comments(self):
-        """Extract comments specifically optimized for Facebook Groups - focus on links and names"""
+        """FIXED comment extraction for Facebook Groups"""
         print(f"=== EXTRACTING GROUPS COMMENTS ({self.current_layout}) ===")
         
         # Save page for debugging
@@ -506,69 +242,69 @@ class FacebookGroupsScraper:
         except:
             pass
         
-        selectors = self.get_groups_selectors()
-        comment_selectors = selectors['comment_containers']
-        
-        # Collect all comment elements
+        # FIXED: Better element finding strategy
         all_comment_elements = []
         
-        for i, selector in enumerate(comment_selectors):
+        # Strategy 1: Layout-specific selectors
+        if self.current_layout == "www":
+            selectors = [
+                "//div[@role='article']",
+                "//div[contains(@aria-label, 'Comment by')]",
+                "//div[contains(@aria-label, 'Bình luận của')]",
+                "//div[.//a[contains(@href, '/user/') or contains(@href, '/profile/')]]",
+                "//div[.//h3//a[contains(@href, 'facebook.com')]]"
+            ]
+        elif self.current_layout == "mobile":
+            selectors = [
+                "//div[@data-sigil='comment']",
+                "//div[contains(@data-ft, 'comment')]",
+                "//div[contains(@id, 'comment_')]",
+                "//div[.//a[contains(@href, 'profile.php') or contains(@href, 'user.php')]]"
+            ]
+        else:  # mbasic
+            selectors = [
+                "//div[@data-ft and contains(@data-ft, 'comment')]",
+                "//div[contains(@id, 'comment_')]",
+                "//table//div[.//a[contains(@href, 'profile.php')]]",
+                "//div[.//a[contains(@href, 'profile.php?id=')]]"
+            ]
+        
+        # Apply selectors
+        for i, selector in enumerate(selectors):
             try:
                 elements = self.driver.find_elements(By.XPATH, selector)
-                print(f"Groups selector {i+1}: Found {len(elements)} elements")
+                print(f"Selector {i+1}: Found {len(elements)} elements")
                 
                 for elem in elements:
                     if elem not in all_comment_elements:
                         all_comment_elements.append(elem)
                         
             except Exception as e:
-                print(f"Groups selector {i+1} failed: {e}")
+                print(f"Selector {i+1} failed: {e}")
                 continue
         
-        print(f"Total unique comment elements: {len(all_comment_elements)}")
-        
-        # If still no elements, try very broad search
+        # Strategy 2: Fallback if no elements found
         if len(all_comment_elements) == 0:
-            print("⚠️ No comments with standard selectors, trying emergency fallback...")
+            print("⚠️ No comments with standard selectors, trying fallback...")
             
-            emergency_selectors = [
-                # Mobile groups specific fallbacks
-                "//div[@data-sigil='comment']",
-                "//div[contains(@data-ft, 'comment')]",
-                "//div[contains(@id, 'comment_')]",
-                "//div[@role='article']//div[string-length(text()) > 30]",
+            fallback_selectors = [
+                # Look for any div with profile links
                 "//div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 20]",
                 "//div[string-length(normalize-space(text())) > 30]",
-                "//*[contains(text(), 'Like') or contains(text(), 'Thích')]/ancestor::div[string-length(text()) > 40][1]",
-                "//span[string-length(normalize-space(text())) > 25]/ancestor::div[1]",
-                "//a[contains(@href,'profile.php')]/ancestor::div[string-length(text()) > 30][1]",
-                
-                # New mobile Facebook selectors based on your div example
-                "//div[contains(@class, 'm') and .//span[contains(@class, 'f20')]]",
-                "//div[contains(@class, 'm') and .//div[contains(@class, 'native-text')]]",
-                "//div[@data-action-id and .//span[contains(@class, 'f20')]]",
-                "//div[@data-type='text' and .//span[contains(@class, 'f20')]]",
-                "//div[contains(@class, 'm') and string-length(normalize-space(text())) > 15]",
-                "//div[@data-action-id and string-length(normalize-space(text())) > 10]",
-                
-                # Very broad mobile groups selector
-                "//div[string-length(normalize-space(text())) > 50 and .//a[contains(@href, 'facebook.com/')]]",
-                
-                # Ultra broad selectors for mobile
-                "//div[string-length(normalize-space(text())) > 30 and contains(@class, 'm')]",
-                "//div[string-length(normalize-space(text())) > 25 and @data-action-id]"
+                "//div[@role='article' and string-length(normalize-space(text())) > 20]",
+                "//*[.//a[contains(@href, 'profile')] and string-length(normalize-space(text())) > 15]"
             ]
             
-            for selector in emergency_selectors:
+            for selector in fallback_selectors:
                 try:
                     elements = self.driver.find_elements(By.XPATH, selector)
-                    print(f"Emergency selector: Found {len(elements)} elements")
+                    print(f"Fallback selector: Found {len(elements)} elements")
                     for elem in elements:
                         if elem not in all_comment_elements:
                             all_comment_elements.append(elem)
                     
-                    # Stop if we found some elements
-                    if len(all_comment_elements) > 15:
+                    # Stop if we found enough elements
+                    if len(all_comment_elements) > 20:
                         break
                 except:
                     continue
@@ -581,71 +317,56 @@ class FacebookGroupsScraper:
         
         comments = []
         seen_content = set()
-        processed_elements = set()
         
         print(f"Processing {len(all_comment_elements)} potential comment elements...")
         
-        # Process each element
+        # Process each element with FIXED extraction
         for i, element in enumerate(all_comment_elements):
             if self._stop_flag:
                 break
                 
             try:
-                # Skip if already processed
-                elem_id = id(element)
-                if elem_id in processed_elements:
-                    continue
-                processed_elements.add(elem_id)
-                
                 print(f"\n--- Element {i+1}/{len(all_comment_elements)} ---")
                 
-                comment_data = self.extract_groups_comment_data(element, i)
+                comment_data = self.extract_comment_data_fixed(element, i)
                 
                 if not comment_data:
                     continue
                 
-                # Deduplication based on profile link and name - more lenient
+                # Deduplication
                 if comment_data['Name'] == "Unknown":
                     print("  ✗ Skipped: no username found")
                     continue
                     
-                # Check for duplicates - only skip if same name AND same profile link
+                # Check for duplicates
                 content_signature = f"{comment_data['Name']}_{comment_data['ProfileLink']}"
                 if content_signature in seen_content:
                     print("  ✗ Skipped: duplicate user")
                     continue
                 seen_content.add(content_signature)
                 
-                # Determine type for groups
-                comment_type = self.determine_groups_comment_type(element, all_comment_elements, i)
-                comment_data['Type'] = comment_type
+                comment_data['Type'] = 'Comment'  # Focus on main comments for groups
                 comment_data['Layout'] = self.current_layout
                 
                 comments.append(comment_data)
-                print(f"  ✅ Added {comment_type}: {comment_data['Name']} - Profile: {comment_data['ProfileLink'][:50]}...")
+                print(f"  ✅ Added: {comment_data['Name']} - Profile: {comment_data['ProfileLink'][:50]}...")
                 
             except Exception as e:
                 print(f"  Error processing element {i}: {e}")
                 continue
         
-        # Final cleanup and organization
-        final_comments = self.cleanup_groups_comments(comments)
-        
-        print(f"\n=== GROUPS EXTRACTION COMPLETE ===")
-        main_count = len([c for c in final_comments if c['Type'] == 'Comment'])
-        reply_count = len([c for c in final_comments if c['Type'] == 'Reply'])
-        print(f"Final results: {main_count} main comments + {reply_count} replies = {len(final_comments)} total")
-        
-        return final_comments
+        print(f"\n=== EXTRACTION COMPLETE: {len(comments)} comments ===")
+        return comments
 
-    def extract_groups_comment_data(self, element, index):
-        """Extract comment data optimized for groups - focus on links and names"""
+    def extract_comment_data_fixed(self, element, index):
+        """FIXED comment data extraction with comprehensive debugging"""
         try:
             full_text = element.text.strip()
             if len(full_text) < 5:
+                print(f"  ❌ Text too short: '{full_text}'")
                 return None
             
-            print(f"  Processing: '{full_text[:80]}...'")
+            print(f"  Processing: '{full_text[:60]}...'")
             
             # Skip anonymous users
             if any(keyword in full_text.lower() for keyword in ['ẩn danh', 'người tham gia ẩn danh', 'anonymous']):
@@ -655,374 +376,247 @@ class FacebookGroupsScraper:
             username = "Unknown"
             profile_href = ""
             uid = "Unknown"
-            comment_link = ""
             
-            # Strategy 1: Find profile links with various selectors
-            profile_link_selectors = [
-                ".//a[contains(@href, 'profile.php')]",
-                ".//a[contains(@href, 'user.php')]",
-                ".//a[contains(@href, '/profile/')]",
-                ".//strong/a[contains(@href, 'facebook.com/')]",
-                ".//h3/a[contains(@href, 'facebook.com/')]",
-                ".//span/a[contains(@href, 'facebook.com/')]",
-                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]",
-                # Mobile groups specific selectors
-                ".//div[@data-sigil='comment']//a[contains(@href, 'facebook.com/')]",
-                ".//div[contains(@class, 'comment')]//a[contains(@href, 'facebook.com/')]",
-                ".//div[@role='article']//a[contains(@href, 'facebook.com/')]",
+            # FIXED: Comprehensive username extraction
+            print(f"    🔍 Analyzing element structure...")
+            
+            # Method 1: Get ALL links and analyze each one
+            try:
+                all_links = element.find_elements(By.XPATH, ".//a")
+                print(f"    Found {len(all_links)} total links in element")
                 
-                # New mobile Facebook selectors
-                ".//span[contains(@class, 'f20')]/a[contains(@href, 'facebook.com/')]",
-                ".//div[contains(@class, 'native-text')]//a[contains(@href, 'facebook.com/')]",
-                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 1]"
-            ]
-            
-            # Extract profile link and username
-            for selector in profile_link_selectors:
-                try:
-                    links = element.find_elements(By.XPATH, selector)
-                    for link in links[:5]:  # Check more links
+                for link_index, link in enumerate(all_links):
+                    try:
                         link_text = link.text.strip()
                         link_href = link.get_attribute("href") or ""
                         
-                        # Validate name for groups - more lenient
-                        if (link_text and 
-                            2 <= len(link_text) <= 100 and 
-                            not link_text.startswith('http') and
-                            not link_text.isdigit() and
-                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment', 'ẩn danh', 'người tham gia', 'thành viên', 'bài viết của'])):
-                            
-                            username = link_text
-                            profile_href = link_href
-                            
-                            # Extract UID from various formats
-                            uid_patterns = [
-                                r'profile\.php\?id=(\d+)',
-                                r'user\.php\?id=(\d+)',
-                                r'/(\d+)(?:\?|$)',
-                                r'id=(\d+)',
-                                r'(\d{10,})'  # Facebook UIDs are usually 10+ digits
-                            ]
-                            
-                            for pattern in uid_patterns:
-                                uid_match = re.search(pattern, link_href)
-                                if uid_match:
-                                    uid = uid_match.group(1)
-                                    break
-                            break
-                    
-                    if username != "Unknown":
-                        break
+                        print(f"      Link {link_index+1}: Text='{link_text}' | Href={link_href[:60]}...")
                         
-                except:
-                    continue
-            
-            # Strategy 2: If still no username, try to extract from text structure
-            if username == "Unknown":
-                try:
-                    # Look for any clickable text that looks like a name
-                    name_candidates = element.find_elements(By.XPATH, 
-                        ".//a[string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50 and contains(@href, 'facebook.com/')]")
-                    
-                    for candidate in name_candidates:
-                        candidate_text = candidate.text.strip()
-                        candidate_href = candidate.get_attribute("href") or ""
-                        
-                        # Skip obvious UI elements
-                        if (candidate_text and 
-                            not any(ui in candidate_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của', 'nhà mình', 'cảm ơn', 'cha ta', 'mẹ ta']) and
-                            'facebook.com' in candidate_href):
+                        # Check if this is a Facebook profile link
+                        if ('facebook.com' in link_href and 
+                            ('profile.php' in link_href or '/user/' in link_href or 'user.php' in link_href)):
                             
-                            username = candidate_text
-                            profile_href = candidate_href
-                            
-                            # Extract UID
-                            uid_match = re.search(r'profile\.php\?id=(\d+)', candidate_href)
-                            if uid_match:
-                                uid = uid_match.group(1)
-                            break
-                except:
-                    pass
-            
-            # Strategy 3: Try to find comment container and extract from parent
-            if username == "Unknown":
-                try:
-                    # Look for comment container and find username in parent elements
-                    comment_container = element.find_element(By.XPATH, 
-                        "./ancestor::div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 20][1]")
-                    
-                    if comment_container:
-                        # Find username in the comment container
-                        username_links = comment_container.find_elements(By.XPATH, 
-                            ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]")
-                        
-                        for link in username_links:
-                            link_text = link.text.strip()
-                            link_href = link.get_attribute("href") or ""
-                            
+                            # Enhanced name validation
                             if (link_text and 
-                                not any(ui in link_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên']) and
-                                'facebook.com' in link_href):
+                                len(link_text) >= 2 and 
+                                len(link_text) <= 100 and
+                                not link_text.isdigit() and
+                                not link_text.startswith('http') and
+                                not any(ui in link_text.lower() for ui in [
+                                    'like', 'reply', 'share', 'comment', 'thích', 'trả lời', 
+                                    'chia sẻ', 'bình luận', 'ago', 'trước', 'min', 'hour', 
+                                    'day', 'phút', 'giờ', 'ngày', 'ẩn danh', 'anonymous',
+                                    'view', 'xem', 'show', 'hiển thị', 'see more', 'view more'
+                                ])):
                                 
                                 username = link_text
                                 profile_href = link_href
                                 
-                                # Extract UID
-                                uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
-                                if uid_match:
-                                    uid = uid_match.group(1)
+                                # Extract UID from URL
+                                uid_patterns = [
+                                    r'profile\.php\?id=(\d+)',
+                                    r'user\.php\?id=(\d+)',
+                                    r'/user/(\d+)',
+                                    r'id=(\d+)',
+                                    r'(\d{10,})'  # Facebook UIDs are usually 10+ digits
+                                ]
+                                
+                                for pattern in uid_patterns:
+                                    uid_match = re.search(pattern, link_href)
+                                    if uid_match:
+                                        uid = uid_match.group(1)
+                                        break
+                                
+                                print(f"      ✅ Found valid profile: {username} -> UID: {uid}")
                                 break
-                except:
-                    pass
+                                
+                    except Exception as e:
+                        print(f"      Error processing link {link_index+1}: {e}")
+                        continue
+                
+                # If found username, we're done with this method
+                if username != "Unknown":
+                    print(f"    ✅ Method 1 successful: {username}")
+                
+            except Exception as e:
+                print(f"    Error in method 1: {e}")
             
-            # Strategy 4: Mobile groups specific - look for username in nearby elements
+            # Method 2: Text-based extraction if no profile link found
             if username == "Unknown":
+                print(f"    🔄 Method 1 failed, trying text-based extraction...")
+                
                 try:
-                    # For mobile groups, username might be in a sibling or parent element
-                    parent_element = element.find_element(By.XPATH, "./ancestor::div[string-length(normalize-space(text())) > 30][1]")
+                    # Look for text elements that might contain usernames
+                    text_elements = element.find_elements(By.XPATH, ".//span | .//strong | .//h3 | .//h4 | .//div")
                     
-                    if parent_element:
-                        # Look for username links in the parent
-                        username_links = parent_element.find_elements(By.XPATH, 
-                            ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50]")
-                        
-                        for link in username_links:
-                            link_text = link.text.strip()
-                            link_href = link.get_attribute("href") or ""
+                    for text_elem in text_elements[:10]:  # Limit to avoid too much processing
+                        try:
+                            text_content = text_elem.text.strip()
                             
-                            # More lenient validation for mobile groups
-                            if (link_text and 
-                                not any(ui in link_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của']) and
-                                'facebook.com' in link_href and
-                                len(link_text) > 2):
+                            # Check if this looks like a username
+                            if (text_content and 
+                                2 <= len(text_content) <= 50 and
+                                not text_content.isdigit() and
+                                not any(ui in text_content.lower() for ui in [
+                                    'like', 'reply', 'share', 'comment', 'thích', 'trả lời',
+                                    'ago', 'trước', 'min', 'hour', 'day', 'phút', 'giờ', 'ngày',
+                                    'view', 'xem', 'show', 'hiển thị', 'see more', 'view more'
+                                ])):
                                 
-                                username = link_text
-                                profile_href = link_href
+                                # Check if there's any Facebook link in the same element
+                                facebook_links = element.find_elements(By.XPATH, ".//a[contains(@href, 'facebook.com/')]")
                                 
-                                # Extract UID
-                                uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
-                                if uid_match:
-                                    uid = uid_match.group(1)
-                                break
-                except:
-                    pass
-            
-            # Strategy 5: Mobile Facebook specific - extract from text structure
-            if username == "Unknown":
-                try:
-                    # Look for username in the text structure (like your div example)
-                    username_spans = element.find_elements(By.XPATH, ".//span[contains(@class, 'f20')]")
-                    
-                    for span in username_spans:
-                        span_text = span.text.strip()
-                        if (span_text and 
-                            len(span_text) > 2 and 
-                            len(span_text) < 50 and
-                            not any(ui in span_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của'])):
-                            
-                            # Try to find profile link in parent or sibling elements
-                            parent_div = span.find_element(By.XPATH, "./ancestor::div[contains(@class, 'm')][1]")
-                            if parent_div:
-                                # Look for any Facebook link in the parent
-                                profile_links = parent_div.find_elements(By.XPATH, ".//a[contains(@href, 'facebook.com/')]")
-                                
-                                for link in profile_links:
-                                    link_href = link.get_attribute("href") or ""
-                                    if 'facebook.com' in link_href:
-                                        username = span_text
-                                        profile_href = link_href
+                                for fb_link in facebook_links:
+                                    fb_href = fb_link.get_attribute("href") or ""
+                                    if ('profile.php' in fb_href or '/user/' in fb_href or 'user.php' in fb_href):
+                                        username = text_content
+                                        profile_href = fb_href
                                         
                                         # Extract UID
-                                        uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
+                                        uid_match = re.search(r'(?:profile\.php\?id=|user\.php\?id=|/user/)(\d+)', fb_href)
                                         if uid_match:
                                             uid = uid_match.group(1)
+                                        
+                                        print(f"      ✅ Found username via text method: {username}")
                                         break
                                 
                                 if username != "Unknown":
                                     break
-                except:
-                    pass
+                                    
+                        except:
+                            continue
+                            
+                except Exception as e:
+                    print(f"    Error in method 2: {e}")
             
-            # Extract comment link - try multiple strategies
-            comment_link_selectors = [
-                ".//a[contains(@href, 'permalink')]",
-                ".//a[contains(@href, 'comment_id')]",
-                ".//a[contains(@href, 'story_fbid')]",
-                ".//a[contains(@href, 'comment') and contains(@href, 'reply')]",
-                ".//a[contains(@href, 'comment') and contains(@href, 'id')]",
-                ".//a[contains(@href, 'groups/') and contains(@href, 'posts/')]"
-            ]
-            
-            for selector in comment_link_selectors:
-                try:
-                    links = element.find_elements(By.XPATH, selector)
-                    for link in links:
-                        link_href = link.get_attribute("href") or ""
-                        if link_href and "facebook.com" in link_href:
-                            comment_link = link_href
-                            break
-                    if comment_link:
-                        break
-                except:
-                    continue
-            
-            # If no specific comment link found, try to construct from current page
-            if not comment_link:
-                try:
-                    current_url = self.driver.current_url
-                    if "groups/" in current_url:
-                        # Try to find comment ID in the element
-                        comment_id_selectors = [
-                            ".//div[contains(@id, 'comment_')]",
-                            ".//div[contains(@data-ft, 'comment')]",
-                            ".//div[@data-sigil='comment']",
-                            ".//div[contains(@class, 'comment')]"
-                        ]
-                        
-                        for selector in comment_id_selectors:
-                            try:
-                                comment_elem = element.find_element(By.XPATH, selector)
-                                comment_id = comment_elem.get_attribute("id") or comment_elem.get_attribute("data-ft") or ""
-                                if comment_id:
-                                    # Construct comment link
-                                    if "comment_" in comment_id:
-                                        comment_id = comment_id.replace("comment_", "")
-                                    comment_link = f"{current_url}#comment_{comment_id}"
-                                    break
-                            except:
-                                continue
-                except:
-                    pass
-            
-            # Return data focused on links and names
-            # For mobile groups, we need at least a username to be valid
+            # Method 3: Parent element search
             if username == "Unknown":
-                print("  ❌ Could not extract username from this element")
+                print(f"    🔄 Method 2 failed, trying parent element search...")
+                
+                try:
+                    # Look in parent elements for username
+                    parent_elements = element.find_elements(By.XPATH, "./ancestor::div[position() <= 3]")
+                    
+                    for parent in parent_elements:
+                        try:
+                            parent_links = parent.find_elements(By.XPATH, ".//a[contains(@href, 'facebook.com/')]")
+                            
+                            for link in parent_links:
+                                link_text = link.text.strip()
+                                link_href = link.get_attribute("href") or ""
+                                
+                                if (link_text and 
+                                    2 <= len(link_text) <= 50 and
+                                    ('profile.php' in link_href or '/user/' in link_href) and
+                                    not any(ui in link_text.lower() for ui in [
+                                        'like', 'reply', 'share', 'comment', 'view', 'xem'
+                                    ])):
+                                    
+                                    username = link_text
+                                    profile_href = link_href
+                                    
+                                    uid_match = re.search(r'(?:profile\.php\?id=|user\.php\?id=|/user/)(\d+)', link_href)
+                                    if uid_match:
+                                        uid = uid_match.group(1)
+                                    
+                                    print(f"      ✅ Found username via parent method: {username}")
+                                    break
+                            
+                            if username != "Unknown":
+                                break
+                                
+                        except:
+                            continue
+                            
+                except Exception as e:
+                    print(f"    Error in method 3: {e}")
+            
+            # Final validation
+            if username == "Unknown":
+                print("  ❌ All extraction methods failed for this element")
+                # Save element HTML for debugging
+                try:
+                    element_html = element.get_attribute('outerHTML')
+                    with open(f"debug_failed_element_{index}.html", "w", encoding="utf-8") as f:
+                        f.write(f"<html><head><meta charset='utf-8'></head><body>{element_html}</body></html>")
+                    print(f"  💾 Saved failed element to debug_failed_element_{index}.html")
+                except:
+                    pass
                 return None
                 
-            print(f"  ✅ Extracted: {username} - Profile: {profile_href[:50]}... - UID: {uid}")
+            print(f"  ✅ Successfully extracted username: {username}")
             
             return {
                 "UID": uid,
                 "Name": username,
                 "ProfileLink": profile_href,
-                "CommentLink": comment_link,
-                "ElementIndex": index
+                "CommentLink": "",  # Can be filled later if needed
+                "ElementIndex": index,
+                "TextPreview": full_text[:100] + "..." if len(full_text) > 100 else full_text
             }
             
         except Exception as e:
-            print(f"Error extracting groups comment data: {e}")
+            print(f"Error extracting comment data: {e}")
             return None
 
-    def determine_groups_comment_type(self, element, all_elements, index):
-        """Determine comment type specifically for groups"""
-        try:
-            # Groups-specific reply detection
-            
-            # Method 1: Check data attributes
-            data_sigil = element.get_attribute("data-sigil") or ""
-            if "reply" in data_sigil.lower():
-                return "Reply"
-            
-            # Method 2: Check for indentation in groups
-            try:
-                elem_location = element.location
-                elem_size = element.size
-                
-                # Compare with nearby elements
-                for compare_index in range(max(0, index-3), index):
-                    if compare_index < len(all_elements):
-                        try:
-                            compare_elem = all_elements[compare_index]
-                            compare_location = compare_elem.location
-                            
-                            # If this element is significantly more indented
-                            if elem_location['x'] > compare_location['x'] + 30:
-                                return "Reply"
-                        except:
-                            continue
-            except:
-                pass
-            
-            # Method 3: Check parent-child relationship in DOM
-            try:
-                # If this element is nested within another comment-like element
-                comment_ancestors = element.find_elements(By.XPATH, 
-                    "./ancestor::div[.//a[contains(@href,'profile.php')] and string-length(normalize-space(text())) > 50]")
-                
-                # If there are comment-like ancestors, this might be a reply
-                if len(comment_ancestors) > 0:
-                    # Additional check: make sure the ancestor is not just a container
-                    for ancestor in comment_ancestors:
-                        try:
-                            ancestor_text = ancestor.text.strip()
-                            element_text = element.text.strip()
-                            
-                            # If ancestor contains this element's text, it's likely a container
-                            if element_text in ancestor_text and len(ancestor_text) > len(element_text) * 1.5:
-                                return "Reply"
-                        except:
-                            continue
-            except:
-                pass
-            
-            # Method 4: Text-based indicators
-            try:
-                element_text = element.text.lower()
-                reply_indicators = [
-                    'replied to', 'replying to', 'in reply to', 
-                    'trả lời', 'phản hồi', 'đáp lại',
-                    '@', 'reply:', 'phản hồi:'
-                ]
-                if any(indicator in element_text for indicator in reply_indicators):
-                    return "Reply"
-            except:
-                pass
-            
-            # Default to main comment for groups
-            return "Comment"
-            
-        except Exception as e:
-            print(f"Error determining groups comment type: {e}")
-            return "Comment"
-
-    def cleanup_groups_comments(self, comments):
-        """Final cleanup specifically for groups comments - only main comments"""
-        print("=== CLEANING UP GROUPS COMMENTS ===")
+    def expand_groups_comments(self, max_iterations=50):
+        """Simplified but effective expansion"""
+        print(f"=== EXPANDING GROUPS COMMENTS ({self.current_layout}) ===")
         
-        cleaned = []
-        final_seen = set()
-        
-        for comment in comments:
-            # Only keep main comments, skip replies
-            if comment['Type'] == 'Reply':
-                print(f"  ✗ Skipped reply: {comment['Name']}")
-                continue
+        for iteration in range(max_iterations):
+            if self._stop_flag:
+                break
                 
-            # Basic deduplication
-            if comment['Name'] == "Unknown" or not comment['ProfileLink']:
-                print(f"  ✗ Skipped invalid: {comment['Name']} - {comment['ProfileLink']}")
-                continue
-                
-            # Check for duplicates
-            signature = f"{comment['Name']}_{comment['ProfileLink']}"
-            if signature in final_seen:
-                print(f"  ✗ Skipped duplicate: {comment['Name']}")
-                continue
-                
-            final_seen.add(signature)
-            cleaned.append(comment)
-            print(f"  ✅ Kept main comment: {comment['Name']} - {comment['ProfileLink']}")
+            print(f"[Iteration {iteration+1}] Scrolling and expanding...")
+            
+            # Scroll to bottom
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(random.uniform(2, 3))
+            
+            # Look for expand links
+            expand_selectors = [
+                "//a[contains(text(),'View more comments')]",
+                "//a[contains(text(),'Xem thêm bình luận')]",
+                "//a[contains(text(),'Show more')]",
+                "//a[contains(text(),'See more')]",
+                "//div[@role='button' and (contains(text(),'more') or contains(text(),'thêm'))]"
+            ]
+            
+            expanded = False
+            for selector in expand_selectors:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    for elem in elements:
+                        if elem.is_displayed() and elem.is_enabled():
+                            try:
+                                elem.click()
+                                expanded = True
+                                print(f"    ✓ Clicked: {elem.text}")
+                                time.sleep(3)
+                                break
+                            except:
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", elem)
+                                    expanded = True
+                                    print(f"    ✓ JS clicked: {elem.text}")
+                                    time.sleep(3)
+                                    break
+                                except:
+                                    continue
+                    if expanded:
+                        break
+                except:
+                    continue
+            
+            if not expanded and iteration > 5:
+                print(f"    No expansion found, stopping early")
+                break
         
-        # Sort by element index
-        cleaned.sort(key=lambda x: x.get('ElementIndex', 999))
-        
-        print(f"Final cleaned main comments: {len(cleaned)}")
-        return cleaned
+        print("=== EXPANSION COMPLETE ===")
 
     def scrape_all_comments(self, limit=0, resolve_uid=True, progress_callback=None):
-        """Main scraping orchestrator for groups"""
-        print(f"=== STARTING GROUPS SCRAPING ===")
+        """Main scraping orchestrator"""
+        print(f"=== STARTING FIXED GROUPS SCRAPING ===")
         
         # Step 1: Expand all content
         self.expand_groups_comments()
@@ -1050,13 +644,14 @@ class FacebookGroupsScraper:
             pass
 
 # ----------------------------
-# Groups-Optimized GUI
+# FIXED GUI
 # ----------------------------
+
 class FBGroupsAppGUI:
     def __init__(self, root):
         self.root = root
-        root.title("🏘️ FB Groups Comment Scraper")
-        root.geometry("1000x900")
+        root.title("🏘️ FB Groups Comment Scraper - FIXED")
+        root.geometry("1100x950")
         root.configure(bg="#e8f5e8")
 
         # Main frame
@@ -1067,11 +662,11 @@ class FBGroupsAppGUI:
         header_frame = tk.Frame(main_frame, bg="#e8f5e8")
         header_frame.pack(fill="x", pady=(0,20))
         
-        title_label = tk.Label(header_frame, text="🏘️ Facebook Groups Comment Scraper", 
+        title_label = tk.Label(header_frame, text="🏘️ Facebook Groups Comment Scraper - FIXED", 
                               font=("Arial", 20, "bold"), bg="#e8f5e8", fg="#2d5a2d")
         title_label.pack()
         
-        subtitle_label = tk.Label(header_frame, text="✨ Chuyên dụng cho Facebook Groups - Tự động chọn 'Tất cả bình luận' - Chỉ lấy Main Comments", 
+        subtitle_label = tk.Label(header_frame, text="🔧 Fixed version - Improved username extraction + Better debugging + Fallback strategies", 
                                  font=("Arial", 11), bg="#e8f5e8", fg="#5a5a5a")
         subtitle_label.pack(pady=(5,0))
 
@@ -1089,7 +684,7 @@ class FBGroupsAppGUI:
         self.txt_cookie.pack(fill="x", padx=15, pady=(0,15))
 
         # Options section
-        options_frame = tk.LabelFrame(main_frame, text="⚙️ Cấu hình Groups", font=("Arial", 12, "bold"), 
+        options_frame = tk.LabelFrame(main_frame, text="⚙️ Cấu hình FIXED Version", font=("Arial", 12, "bold"), 
                                      bg="#e8f5e8", fg="#2d5a2d", relief="groove", bd=2)
         options_frame.pack(fill="x", pady=(0,15))
         
@@ -1103,11 +698,11 @@ class FBGroupsAppGUI:
         self.entry_limit.grid(row=0, column=1, sticky="w", padx=(10,20))
         tk.Label(opt_grid, text="(0 = tất cả)", bg="#e8f5e8", fg="#6c757d").grid(row=0, column=2, sticky="w")
 
-        self.headless_var = tk.BooleanVar(value=False)  # Default to visible for groups debugging
+        self.headless_var = tk.BooleanVar(value=False)  # Default to visible for debugging
         tk.Checkbutton(opt_grid, text="👻 Chạy ẩn", variable=self.headless_var, 
                       bg="#e8f5e8", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=(10,0))
 
-        self.resolve_uid_var = tk.BooleanVar(value=False)
+        self.resolve_uid_var = tk.BooleanVar(value=True)
         tk.Checkbutton(opt_grid, text="🆔 Lấy UID", variable=self.resolve_uid_var, 
                       bg="#e8f5e8", font=("Arial", 9)).grid(row=1, column=1, sticky="w", pady=(10,0))
 
@@ -1120,22 +715,22 @@ class FBGroupsAppGUI:
         file_row.pack(fill="x", padx=15, pady=15)
         
         self.entry_file = tk.Entry(file_row, width=70, font=("Arial", 9))
-        self.entry_file.insert(0, "facebook_groups_comments.xlsx")
+        self.entry_file.insert(0, "facebook_groups_comments_FIXED.xlsx")
         self.entry_file.pack(side="left", fill="x", expand=True)
         
         tk.Button(file_row, text="📁 Chọn", command=self.choose_file, 
                  bg="#17a2b8", fg="white", font=("Arial", 9)).pack(side="right", padx=(10,0))
 
         # Status section
-        status_frame = tk.LabelFrame(main_frame, text="📊 Trạng thái thực thi", font=("Arial", 12, "bold"), 
+        status_frame = tk.LabelFrame(main_frame, text="📊 Trạng thái thực thi - FIXED", font=("Arial", 12, "bold"), 
                                     bg="#e8f5e8", fg="#2d5a2d", relief="groove", bd=2)
         status_frame.pack(fill="x", pady=(0,15))
         
-        self.lbl_status = tk.Label(status_frame, text="✅ Sẵn sàng scrape Facebook Groups", fg="#28a745", 
+        self.lbl_status = tk.Label(status_frame, text="✅ FIXED scraper sẵn sàng - Đã fix lỗi username extraction", fg="#28a745", 
                                   wraplength=900, justify="left", font=("Arial", 11), bg="#e8f5e8")
         self.lbl_status.pack(anchor="w", padx=15, pady=(15,5))
 
-        self.lbl_progress_detail = tk.Label(status_frame, text="💡 Nhập link Groups và cookie → Nhấn Bắt đầu → Scraper sẽ tự động chọn 'Tất cả bình luận' và lấy Main Comments: Name, Profile Link, Comment Link, UID",
+        self.lbl_progress_detail = tk.Label(status_frame, text="💡 FIXED features: 1) Better link analysis, 2) Enhanced debugging output, 3) Multiple extraction fallbacks, 4) Debug file generation",
                                           fg="#6c757d", wraplength=900, justify="left", font=("Arial", 9), bg="#e8f5e8")
         self.lbl_progress_detail.pack(anchor="w", padx=15, pady=(0,10))
 
@@ -1147,7 +742,7 @@ class FBGroupsAppGUI:
         button_frame = tk.Frame(main_frame, bg="#e8f5e8")
         button_frame.pack(fill="x", pady=20)
         
-        self.btn_start = tk.Button(button_frame, text="🚀 Bắt đầu lấy Groups Comments", bg="#28a745", fg="white", 
+        self.btn_start = tk.Button(button_frame, text="🚀 Bắt đầu FIXED Scraping", bg="#28a745", fg="white", 
                                   font=("Arial", 14, "bold"), command=self.start_scrape_thread, 
                                   pady=12, padx=40)
         self.btn_start.pack(side="left")
@@ -1170,7 +765,7 @@ class FBGroupsAppGUI:
         f = filedialog.asksaveasfilename(
             defaultextension=".xlsx", 
             filetypes=[("Excel files", "*.xlsx"), ("CSV files", "*.csv")],
-            title="Chọn file để lưu Groups comments"
+            title="Chọn file để lưu FIXED Groups comments"
         )
         if f:
             self.entry_file.delete(0, tk.END)
@@ -1179,7 +774,7 @@ class FBGroupsAppGUI:
     def start_scrape_thread(self):
         url = self.entry_url.get().strip()
         cookie_str = self.txt_cookie.get("1.0", tk.END).strip()
-        file_out = self.entry_file.get().strip() or "facebook_groups_comments.xlsx"
+        file_out = self.entry_file.get().strip() or "facebook_groups_comments_FIXED.xlsx"
         
         if not url:
             messagebox.showerror("❌ Lỗi", "Vui lòng nhập link bài viết Groups.")
@@ -1199,8 +794,8 @@ class FBGroupsAppGUI:
         self._stop_flag = False
         self.progress_var.set(0)
         self.progress_bar.start()
-        self.lbl_status.config(text="🔄 Đang khởi động Groups scraper...", fg="#fd7e14")
-        self.lbl_progress_detail.config(text="⏳ Đang chuẩn bị trình duyệt cho Facebook Groups...")
+        self.lbl_status.config(text="🔄 Đang khởi động FIXED Groups scraper...", fg="#fd7e14")
+        self.lbl_progress_detail.config(text="⏳ Initializing FIXED extraction logic with enhanced debugging...")
         self.btn_start.config(state=tk.DISABLED)
         self.btn_stop.config(state=tk.NORMAL)
 
@@ -1214,41 +809,41 @@ class FBGroupsAppGUI:
         self._stop_flag = True
         if self.scraper:
             self.scraper._stop_flag = True
-        self.lbl_status.config(text="⏹️ Đang dừng Groups scraper...", fg="#dc3545")
+        self.lbl_status.config(text="⏹️ Đang dừng FIXED scraper...", fg="#dc3545")
         self.btn_stop.config(state=tk.DISABLED)
 
     def _progress_cb(self, count):
         self.progress_var.set(count)
-        self.lbl_status.config(text=f"📈 Đang xử lý Groups... Đã lấy {count} comment/reply", fg="#28a745")
+        self.lbl_status.config(text=f"📈 FIXED processing... Đã lấy {count} comments", fg="#28a745")
         self.root.update_idletasks()
 
     def _scrape_worker(self, url, cookie_str, file_out, limit, headless, resolve_uid):
         try:
             # Initialize
-            self.lbl_status.config(text="🌐 Khởi tạo Groups scraper...", fg="#fd7e14")
+            self.lbl_status.config(text="🌐 Khởi tạo FIXED Groups scraper...", fg="#fd7e14")
             self.scraper = FacebookGroupsScraper(cookie_str, headless=headless)
             
             if self._stop_flag: return
             
             # Load post
-            self.lbl_status.config(text="📄 Đang tải bài viết Groups...", fg="#fd7e14")
-            self.lbl_progress_detail.config(text="⏳ Đang kết nối và detect layout tối ưu cho Groups...")
+            self.lbl_status.config(text="📄 Đang tải bài viết Groups với FIXED logic...", fg="#fd7e14")
+            self.lbl_progress_detail.config(text="⏳ Loading post with enhanced error handling...")
             success = self.scraper.load_post(url)
             
             if not success:
                 self.lbl_status.config(text="❌ Không thể tải bài viết Groups", fg="#dc3545")
-                self.lbl_progress_detail.config(text="💡 Groups thường yêu cầu: 1) Cookie valid, 2) Quyền truy cập nhóm, 3) Bài viết public trong nhóm")
+                self.lbl_progress_detail.config(text="💡 Kiểm tra: 1) Cookie valid, 2) Quyền truy cập Groups, 3) Link chính xác")
                 return
             
             # Show detected layout
             layout = getattr(self.scraper, 'current_layout', 'unknown')
-            self.lbl_progress_detail.config(text=f"🎯 Layout detected: {layout} - Optimizing for Groups structure...")
+            self.lbl_progress_detail.config(text=f"🎯 Layout detected: {layout} - Using FIXED extraction methods...")
                 
             if self._stop_flag: return
             
-            # Scrape
-            self.lbl_status.config(text=f"🔍 Đang lấy Groups comments ({layout})...", fg="#fd7e14")
-            self.lbl_progress_detail.config(text="⏳ Đang expand comments và extract data từ Groups (đã chọn 'Tất cả bình luận')...")
+            # Scrape with FIXED logic
+            self.lbl_status.config(text=f"🔍 FIXED Groups extraction ({layout})...", fg="#fd7e14")
+            self.lbl_progress_detail.config(text="⏳ Using enhanced username extraction with multiple fallback strategies...")
             
             comments = self.scraper.scrape_all_comments(limit=limit, resolve_uid=resolve_uid, 
                                                        progress_callback=self._progress_cb)
@@ -1256,14 +851,14 @@ class FBGroupsAppGUI:
             if self._stop_flag: return
             
             # Save
-            self.lbl_status.config(text="💾 Đang lưu Groups data...", fg="#fd7e14")
+            self.lbl_status.config(text="💾 Đang lưu FIXED Groups data...", fg="#fd7e14")
             
             if comments:
                 df = pd.DataFrame(comments)
                 
                 # Add metadata
                 df.insert(0, 'STT', range(1, len(df) + 1))
-                df['Source'] = 'Facebook Groups'
+                df['Source'] = 'Facebook Groups - FIXED'
                 df['ScrapedAt'] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
                 
                 # File handling
@@ -1276,25 +871,40 @@ class FBGroupsAppGUI:
                     df.to_excel(file_out, index=False, engine="openpyxl")
                 
                 # Statistics
-                main_comments_count = len([c for c in comments if c['Type'] == 'Comment'])
-                replies_count = len([c for c in comments if c['Type'] == 'Reply'])
                 unique_users = len(set(c['Name'] for c in comments if c['Name'] != 'Unknown'))
                 profile_links = len([c for c in comments if c['ProfileLink']])
-                comment_links = len([c for c in comments if c['CommentLink']])
                 uid_count = len([c for c in comments if c['UID'] != 'Unknown'])
                 
-                self.lbl_status.config(text=f"🎉 GROUPS SCRAPING HOÀN THÀNH!", fg="#28a745")
-                self.lbl_progress_detail.config(text=f"📊 Kết quả: {main_comments_count} main comments | {unique_users} users | {profile_links} profile links | {comment_links} comment links | {uid_count} UIDs | {layout} layout | File: {file_out}")
+                self.lbl_status.config(text=f"🎉 FIXED GROUPS SCRAPING HOÀN THÀNH!", fg="#28a745")
+                self.lbl_progress_detail.config(text=f"📊 FIXED Results: {len(comments)} comments | {unique_users} unique users | {profile_links} profile links | {uid_count} UIDs | Layout: {layout} | File: {file_out}")
+                
+                print(f"🎯 FIXED SCRAPING COMPLETE!")
+                print(f"   📊 Results: {len(comments)} total comments")
+                print(f"   👥 Unique users: {unique_users}")
+                print(f"   🔗 Profile links: {profile_links}")
+                print(f"   🆔 UIDs extracted: {uid_count}")
+                print(f"   📱 Layout used: {layout}")
+                print(f"   💾 Saved to: {file_out}")
+                print(f"   🔍 Debug files: debug_groups_{layout}.html + debug_failed_element_*.html")
                 
             else:
-                self.lbl_status.config(text="⚠️ Không tìm thấy comment trong Groups", fg="#ffc107")
-                self.lbl_progress_detail.config(text=f"💡 Layout: {layout} | Thử: 1) Kiểm tra quyền truy cập Groups, 2) Tắt headless, 3) Xem debug file")
+                self.lbl_status.config(text="⚠️ Không tìm thấy comment với FIXED logic", fg="#ffc107")
+                self.lbl_progress_detail.config(text=f"💡 Layout: {layout} | Kiểm tra debug files để phân tích Facebook structure")
+                
+                print(f"⚠️ No comments found with FIXED logic")
+                print(f"   📱 Layout: {layout}")
+                print(f"   🔍 Debug files created: debug_groups_{layout}.html")
+                print(f"   💡 Suggestions:")
+                print(f"      1. Check if you have access to the Facebook Group")
+                print(f"      2. Verify the post URL is correct and public in the group")
+                print(f"      3. Try running without headless mode to see what's happening")
+                print(f"      4. Check the debug HTML file to understand the page structure")
                 
         except Exception as e:
             error_msg = str(e)[:120]
-            self.lbl_status.config(text=f"❌ Lỗi Groups scraping: {error_msg}...", fg="#dc3545")
-            self.lbl_progress_detail.config(text="🔍 Xem console để biết chi tiết. Groups có thể có security khác thường.")
-            print(f"Groups scraping error: {e}")
+            self.lbl_status.config(text=f"❌ Lỗi FIXED scraping: {error_msg}...", fg="#dc3545")
+            self.lbl_progress_detail.config(text="🔍 Xem console để biết chi tiết. FIXED version cung cấp nhiều debug info.")
+            print(f"FIXED Groups scraping error: {e}")
             import traceback
             traceback.print_exc()
         finally:
@@ -1305,8 +915,9 @@ class FBGroupsAppGUI:
             self.btn_stop.config(state=tk.DISABLED)
 
 # ----------------------------
-# Run app
+# Run FIXED app
 # ----------------------------
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = FBGroupsAppGUI(root)
