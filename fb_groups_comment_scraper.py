@@ -258,10 +258,13 @@ class FacebookGroupsScraper:
                     "//div[@role='button' and (contains(text(),'more') or contains(text(),'thêm'))]",
                     "//span[contains(text(),'View') and contains(text(),'more')]/ancestor::*[@role='button' or self::a][1]",
                     "//div[@data-sigil='more' or @data-sigil='expand']",
-                    "//*[contains(@data-sigil,'comment')]//*[contains(text(),'more') or contains(text(),'thêm')]"
+                    "//*[contains(@data-sigil,'comment')]//*[contains(text(),'more') or contains(text(),'thêm')]",
+                    # More generic mobile expand selectors
+                    "//div[@role='button' and (contains(.,'more') or contains(.,'thêm') or contains(.,'bình luận') or contains(.,'comments'))]",
+                    "//*[contains(text(),'more') or contains(text(),'thêm') or contains(text(),'bình luận') or contains(text(),'comments')]/ancestor::*[@role='button' or self::a][1]"
                 ],
                 'comment_containers': [
-                    # Mobile groups comment containers
+                    # Mobile groups comment containers - more targeted
                     "//div[@data-sigil='comment']",
                     "//div[@data-sigil='comment-body']", 
                     "//div[contains(@data-ft, 'comment')]",
@@ -285,7 +288,17 @@ class FacebookGroupsScraper:
                     
                     # Very broad mobile selectors
                     "//div[contains(@class, 'm') and string-length(normalize-space(text())) > 20]",
-                    "//div[@data-action-id and string-length(normalize-space(text())) > 15]"
+                    "//div[@data-action-id and string-length(normalize-space(text())) > 15]",
+                    
+                    # NEW: More specific selectors based on user feedback
+                    "//div[.//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2] and string-length(normalize-space(text())) > 30]",
+                    "//div[.//span[contains(@class, 'f20')] and string-length(normalize-space(text())) > 20]",
+                    "//div[@data-action-id and .//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 25]",
+                    "//div[contains(@class, 'm') and .//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 30]",
+                    
+                    # Emergency fallback - look for any div with Facebook links and substantial text
+                    "//div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 35]",
+                    "//div[string-length(normalize-space(text())) > 50 and .//a[contains(@href, 'facebook.com/')]]"
                 ]
             }
         else:
@@ -495,108 +508,92 @@ class FacebookGroupsScraper:
             print(f"  ⚠️ Error clicking initial expand buttons: {e}")
 
     def extract_groups_comments(self):
-        """Extract comments specifically optimized for Facebook Groups - focus on links and names"""
-        print(f"=== EXTRACTING GROUPS COMMENTS ({self.current_layout}) ===")
+        """Extract comments from Facebook Groups with enhanced debugging"""
+        print(f"\n=== EXTRACTING GROUPS COMMENTS ({self.current_layout}) ===")
         
-        # Save page for debugging
-        try:
-            with open(f"debug_groups_{self.current_layout}.html", "w", encoding="utf-8") as f:
-                f.write(self.driver.page_source)
-            print(f"Saved page to debug_groups_{self.current_layout}.html")
-        except:
-            pass
-        
+        # Get selectors for current layout
         selectors = self.get_groups_selectors()
         comment_selectors = selectors['comment_containers']
         
-        # Collect all comment elements
+        # Try to find comment elements with each selector
         all_comment_elements = []
+        
+        print(f"🔍 Searching for comment elements using {len(comment_selectors)} selectors...")
         
         for i, selector in enumerate(comment_selectors):
             try:
                 elements = self.driver.find_elements(By.XPATH, selector)
-                print(f"Groups selector {i+1}: Found {len(elements)} elements")
-                
-                for elem in elements:
-                    if elem not in all_comment_elements:
-                        all_comment_elements.append(elem)
-                        
+                if elements:
+                    print(f"  Selector {i+1}: '{selector}' found {len(elements)} elements")
+                    for elem in elements[:3]:  # Show first 3 elements
+                        try:
+                            elem_text = elem.text.strip()[:100]
+                            print(f"    - Element text: '{elem_text}...'")
+                        except:
+                            print(f"    - Element text: [Could not read]")
+                    
+                    # Add unique elements
+                    for elem in elements:
+                        if elem not in all_comment_elements:
+                            all_comment_elements.append(elem)
+                else:
+                    print(f"  Selector {i+1}: '{selector}' found 0 elements")
             except Exception as e:
-                print(f"Groups selector {i+1} failed: {e}")
-                continue
+                print(f"  Selector {i+1}: '{selector}' error: {e}")
         
-        print(f"Total unique comment elements: {len(all_comment_elements)}")
+        print(f"\n📊 Total unique comment elements found: {len(all_comment_elements)}")
         
-        # If still no elements, try very broad search
-        if len(all_comment_elements) == 0:
-            print("⚠️ No comments with standard selectors, trying emergency fallback...")
+        if not all_comment_elements:
+            print("❌ No comment elements found with any selector!")
+            print("🔍 Trying emergency fallback selectors...")
             
+            # Emergency fallback - very broad selectors
             emergency_selectors = [
-                # Mobile groups specific fallbacks
-                "//div[@data-sigil='comment']",
-                "//div[contains(@data-ft, 'comment')]",
-                "//div[contains(@id, 'comment_')]",
-                "//div[@role='article']//div[string-length(text()) > 30]",
-                "//div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 20]",
                 "//div[string-length(normalize-space(text())) > 30]",
-                "//*[contains(text(), 'Like') or contains(text(), 'Thích')]/ancestor::div[string-length(text()) > 40][1]",
-                "//span[string-length(normalize-space(text())) > 25]/ancestor::div[1]",
-                "//a[contains(@href,'profile.php')]/ancestor::div[string-length(text()) > 30][1]",
-                
-                # New mobile Facebook selectors based on your div example
-                "//div[contains(@class, 'm') and .//span[contains(@class, 'f20')]]",
-                "//div[contains(@class, 'm') and .//div[contains(@class, 'native-text')]]",
-                "//div[@data-action-id and .//span[contains(@class, 'f20')]]",
-                "//div[@data-type='text' and .//span[contains(@class, 'f20')]]",
-                "//div[contains(@class, 'm') and string-length(normalize-space(text())) > 15]",
-                "//div[@data-action-id and string-length(normalize-space(text())) > 10]",
-                
-                # Very broad mobile groups selector
-                "//div[string-length(normalize-space(text())) > 50 and .//a[contains(@href, 'facebook.com/')]]",
-                
-                # Ultra broad selectors for mobile
-                "//div[string-length(normalize-space(text())) > 30 and contains(@class, 'm')]",
-                "//div[string-length(normalize-space(text())) > 25 and @data-action-id]"
+                "//div[.//a[contains(@href, 'facebook.com/')]]",
+                "//div[contains(@class, 'm')]",
+                "//div[@data-action-id]"
             ]
             
             for selector in emergency_selectors:
                 try:
                     elements = self.driver.find_elements(By.XPATH, selector)
-                    print(f"Emergency selector: Found {len(elements)} elements")
-                    for elem in elements:
-                        if elem not in all_comment_elements:
-                            all_comment_elements.append(elem)
-                    
-                    # Stop if we found some elements
-                    if len(all_comment_elements) > 15:
-                        break
-                except:
-                    continue
+                    if elements:
+                        print(f"  Emergency selector '{selector}' found {len(elements)} elements")
+                        for elem in elements[:3]:
+                            try:
+                                elem_text = elem.text.strip()[:100]
+                                print(f"    - Emergency element: '{elem_text}...'")
+                            except:
+                                print(f"    - Emergency element: [Could not read]")
+                        
+                        # Add unique elements
+                        for elem in elements:
+                            if elem not in all_comment_elements:
+                                all_comment_elements.append(elem)
+                except Exception as e:
+                    print(f"  Emergency selector '{selector}' error: {e}")
+            
+            print(f"📊 After emergency fallback: {len(all_comment_elements)} total elements")
         
-        # Sort by position
-        try:
-            all_comment_elements.sort(key=lambda x: (x.location['y'], x.location['x']))
-        except:
-            pass
+        if not all_comment_elements:
+            print("❌ Still no elements found. This might indicate:")
+            print("   - The page structure has changed")
+            print("   - Comments are not loaded yet")
+            print("   - Access permission issues")
+            return []
         
+        # Process found elements
         comments = []
         seen_content = set()
-        processed_elements = set()
         
-        print(f"Processing {len(all_comment_elements)} potential comment elements...")
+        print(f"\n🔍 Processing {len(all_comment_elements)} elements for comment data...")
         
-        # Process each element
         for i, element in enumerate(all_comment_elements):
             if self._stop_flag:
                 break
                 
             try:
-                # Skip if already processed
-                elem_id = id(element)
-                if elem_id in processed_elements:
-                    continue
-                processed_elements.add(elem_id)
-                
                 print(f"\n--- Element {i+1}/{len(all_comment_elements)} ---")
                 
                 comment_data = self.extract_groups_comment_data(element, i)
@@ -657,179 +654,89 @@ class FacebookGroupsScraper:
             uid = "Unknown"
             comment_link = ""
             
-            # Strategy 1: Find profile links with various selectors
-            profile_link_selectors = [
-                ".//a[contains(@href, 'profile.php')]",
-                ".//a[contains(@href, 'user.php')]",
-                ".//a[contains(@href, '/profile/')]",
-                ".//strong/a[contains(@href, 'facebook.com/')]",
-                ".//h3/a[contains(@href, 'facebook.com/')]",
-                ".//span/a[contains(@href, 'facebook.com/')]",
-                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]",
-                # Mobile groups specific selectors
-                ".//div[@data-sigil='comment']//a[contains(@href, 'facebook.com/')]",
-                ".//div[contains(@class, 'comment')]//a[contains(@href, 'facebook.com/')]",
-                ".//div[@role='article']//a[contains(@href, 'facebook.com/')]",
+            # NEW STRATEGY: Based on user hint about clicking on black names and comment times
+            
+            # Strategy 1: Look for clickable names (black names that lead to FB profile)
+            # These are typically the first clickable text in a comment
+            try:
+                # Find all clickable links that could be usernames
+                name_candidates = element.find_elements(By.XPATH, 
+                    ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50]")
                 
-                # New mobile Facebook selectors
-                ".//span[contains(@class, 'f20')]/a[contains(@href, 'facebook.com/')]",
-                ".//div[contains(@class, 'native-text')]//a[contains(@href, 'facebook.com/')]",
-                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 1]"
-            ]
-            
-            # Extract profile link and username
-            for selector in profile_link_selectors:
-                try:
-                    links = element.find_elements(By.XPATH, selector)
-                    for link in links[:5]:  # Check more links
-                        link_text = link.text.strip()
-                        link_href = link.get_attribute("href") or ""
-                        
-                        # Validate name for groups - more lenient
-                        if (link_text and 
-                            2 <= len(link_text) <= 100 and 
-                            not link_text.startswith('http') and
-                            not link_text.isdigit() and
-                            not any(ui in link_text.lower() for ui in ['like', 'reply', 'share', 'comment', 'ẩn danh', 'người tham gia', 'thành viên', 'bài viết của'])):
-                            
-                            username = link_text
-                            profile_href = link_href
-                            
-                            # Extract UID from various formats
-                            uid_patterns = [
-                                r'profile\.php\?id=(\d+)',
-                                r'user\.php\?id=(\d+)',
-                                r'/(\d+)(?:\?|$)',
-                                r'id=(\d+)',
-                                r'(\d{10,})'  # Facebook UIDs are usually 10+ digits
-                            ]
-                            
-                            for pattern in uid_patterns:
-                                uid_match = re.search(pattern, link_href)
-                                if uid_match:
-                                    uid = uid_match.group(1)
-                                    break
-                            break
+                for candidate in name_candidates:
+                    candidate_text = candidate.text.strip()
+                    candidate_href = candidate.get_attribute("href") or ""
                     
-                    if username != "Unknown":
-                        break
+                    # Skip obvious UI elements and validate as potential username
+                    if (candidate_text and 
+                        not any(ui in candidate_text.lower() for ui in [
+                            'ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 
+                            'thành viên', 'bài viết của', 'nhà mình', 'cảm ơn', 'cha ta', 'mẹ ta',
+                            'thích', 'trả lời', 'chia sẻ', 'bình luận', 'theo dõi', 'follow',
+                            '1 tuần', '2 tuần', '3 tuần', '1 ngày', '2 ngày', '1 giờ', '2 giờ',
+                            'min', 'minutes', 'hours', 'days', 'phút', 'giờ', 'ngày', 'giây'
+                        ]) and
+                        'facebook.com' in candidate_href and
+                        not candidate_text.isdigit() and
+                        not candidate_text.startswith('http')):
                         
-                except:
-                    continue
-            
-            # Strategy 2: If still no username, try to extract from text structure
-            if username == "Unknown":
-                try:
-                    # Look for any clickable text that looks like a name
-                    name_candidates = element.find_elements(By.XPATH, 
-                        ".//a[string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50 and contains(@href, 'facebook.com/')]")
-                    
-                    for candidate in name_candidates:
-                        candidate_text = candidate.text.strip()
-                        candidate_href = candidate.get_attribute("href") or ""
+                        username = candidate_text
+                        profile_href = candidate_href
                         
-                        # Skip obvious UI elements
-                        if (candidate_text and 
-                            not any(ui in candidate_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của', 'nhà mình', 'cảm ơn', 'cha ta', 'mẹ ta']) and
-                            'facebook.com' in candidate_href):
-                            
-                            username = candidate_text
-                            profile_href = candidate_href
-                            
-                            # Extract UID
-                            uid_match = re.search(r'profile\.php\?id=(\d+)', candidate_href)
+                        # Extract UID from various formats
+                        uid_patterns = [
+                            r'profile\.php\?id=(\d+)',
+                            r'user\.php\?id=(\d+)',
+                            r'/(\d+)(?:\?|$)',
+                            r'id=(\d+)',
+                            r'(\d{10,})'  # Facebook UIDs are usually 10+ digits
+                        ]
+                        
+                        for pattern in uid_patterns:
+                            uid_match = re.search(pattern, candidate_href)
                             if uid_match:
                                 uid = uid_match.group(1)
-                            break
-                except:
-                    pass
-            
-            # Strategy 3: Try to find comment container and extract from parent
-            if username == "Unknown":
-                try:
-                    # Look for comment container and find username in parent elements
-                    comment_container = element.find_element(By.XPATH, 
-                        "./ancestor::div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 20][1]")
-                    
-                    if comment_container:
-                        # Find username in the comment container
-                        username_links = comment_container.find_elements(By.XPATH, 
-                            ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2]")
-                        
-                        for link in username_links:
-                            link_text = link.text.strip()
-                            link_href = link.get_attribute("href") or ""
-                            
-                            if (link_text and 
-                                not any(ui in link_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên']) and
-                                'facebook.com' in link_href):
-                                
-                                username = link_text
-                                profile_href = link_href
-                                
-                                # Extract UID
-                                uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
-                                if uid_match:
-                                    uid = uid_match.group(1)
                                 break
-                except:
-                    pass
-            
-            # Strategy 4: Mobile groups specific - look for username in nearby elements
-            if username == "Unknown":
-                try:
-                    # For mobile groups, username might be in a sibling or parent element
-                    parent_element = element.find_element(By.XPATH, "./ancestor::div[string-length(normalize-space(text())) > 30][1]")
-                    
-                    if parent_element:
-                        # Look for username links in the parent
-                        username_links = parent_element.find_elements(By.XPATH, 
-                            ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50]")
                         
-                        for link in username_links:
-                            link_text = link.text.strip()
-                            link_href = link.get_attribute("href") or ""
-                            
-                            # More lenient validation for mobile groups
-                            if (link_text and 
-                                not any(ui in link_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của']) and
-                                'facebook.com' in link_href and
-                                len(link_text) > 2):
-                                
-                                username = link_text
-                                profile_href = link_href
-                                
-                                # Extract UID
-                                uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
-                                if uid_match:
-                                    uid = uid_match.group(1)
-                                break
-                except:
-                    pass
+                        print(f"  ✅ Found username via Strategy 1: {username}")
+                        break
+                        
+            except Exception as e:
+                print(f"  ⚠️ Strategy 1 failed: {e}")
             
-            # Strategy 5: Mobile Facebook specific - extract from text structure
+            # Strategy 2: If no username found, try to find it in the text structure
             if username == "Unknown":
                 try:
-                    # Look for username in the text structure (like your div example)
-                    username_spans = element.find_elements(By.XPATH, ".//span[contains(@class, 'f20')]")
+                    # Look for text that looks like a name but might not be clickable
+                    # This handles cases where the name is visible but not a link
+                    text_elements = element.find_elements(By.XPATH, 
+                        ".//*[string-length(normalize-space(text())) > 2 and string-length(normalize-space(text())) < 50]")
                     
-                    for span in username_spans:
-                        span_text = span.text.strip()
-                        if (span_text and 
-                            len(span_text) > 2 and 
-                            len(span_text) < 50 and
-                            not any(ui in span_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của'])):
+                    for text_elem in text_elements:
+                        text_content = text_elem.text.strip()
+                        
+                        # Check if this looks like a name (not UI text)
+                        if (text_content and 
+                            not any(ui in text_content.lower() for ui in [
+                                'ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 
+                                'thành viên', 'bài viết của', 'nhà mình', 'cảm ơn', 'cha ta', 'mẹ ta',
+                                'thích', 'trả lời', 'chia sẻ', 'bình luận', 'theo dõi', 'follow',
+                                '1 tuần', '2 tuần', '3 tuần', '1 ngày', '2 ngày', '1 giờ', '2 giờ',
+                                'min', 'minutes', 'hours', 'days', 'phút', 'giờ', 'ngày', 'giây'
+                            ]) and
+                            not text_content.isdigit() and
+                            not text_content.startswith('http') and
+                            len(text_content.split()) <= 4):  # Names are usually 1-4 words
                             
-                            # Try to find profile link in parent or sibling elements
-                            parent_div = span.find_element(By.XPATH, "./ancestor::div[contains(@class, 'm')][1]")
-                            if parent_div:
-                                # Look for any Facebook link in the parent
-                                profile_links = parent_div.find_elements(By.XPATH, ".//a[contains(@href, 'facebook.com/')]")
+                            # Try to find a Facebook link in the same element or nearby
+                            parent_elem = text_elem.find_element(By.XPATH, "./ancestor::div[string-length(normalize-space(text())) > 30][1]")
+                            if parent_elem:
+                                fb_links = parent_elem.find_elements(By.XPATH, ".//a[contains(@href, 'facebook.com/')]")
                                 
-                                for link in profile_links:
+                                for link in fb_links:
                                     link_href = link.get_attribute("href") or ""
                                     if 'facebook.com' in link_href:
-                                        username = span_text
+                                        username = text_content
                                         profile_href = link_href
                                         
                                         # Extract UID
@@ -839,34 +746,104 @@ class FacebookGroupsScraper:
                                         break
                                 
                                 if username != "Unknown":
+                                    print(f"  ✅ Found username via Strategy 2: {username}")
                                     break
-                except:
-                    pass
+                                    
+                except Exception as e:
+                    print(f"  ⚠️ Strategy 2 failed: {e}")
             
-            # Extract comment link - try multiple strategies
-            comment_link_selectors = [
-                ".//a[contains(@href, 'permalink')]",
-                ".//a[contains(@href, 'comment_id')]",
-                ".//a[contains(@href, 'story_fbid')]",
-                ".//a[contains(@href, 'comment') and contains(@href, 'reply')]",
-                ".//a[contains(@href, 'comment') and contains(@href, 'id')]",
-                ".//a[contains(@href, 'groups/') and contains(@href, 'posts/')]"
-            ]
-            
-            for selector in comment_link_selectors:
+            # Strategy 3: Mobile Facebook specific - look for span.f20 elements (from your div example)
+            if username == "Unknown":
                 try:
-                    links = element.find_elements(By.XPATH, selector)
-                    for link in links:
-                        link_href = link.get_attribute("href") or ""
-                        if link_href and "facebook.com" in link_href:
-                            comment_link = link_href
-                            break
-                    if comment_link:
-                        break
-                except:
-                    continue
+                    # Look for username in span.f20 elements (like in your div example)
+                    username_spans = element.find_elements(By.XPATH, ".//span[contains(@class, 'f20')]")
+                    
+                    for span in username_spans:
+                        span_text = span.text.strip()
+                        if (span_text and 
+                            len(span_text) > 2 and 
+                            len(span_text) < 50 and
+                            not any(ui in span_text.lower() for ui in [
+                                'ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 
+                                'thành viên', 'bài viết của', 'nhà mình', 'cảm ơn', 'cha ta', 'mẹ ta',
+                                'thích', 'trả lời', 'chia sẻ', 'bình luận', 'theo dõi', 'follow'
+                            ])):
+                            
+                            # Try to find profile link in parent or sibling elements
+                            try:
+                                parent_div = span.find_element(By.XPATH, "./ancestor::div[contains(@class, 'm')][1]")
+                                if parent_div:
+                                    # Look for any Facebook link in the parent
+                                    profile_links = parent_div.find_elements(By.XPATH, ".//a[contains(@href, 'facebook.com/')]")
+                                    
+                                    for link in profile_links:
+                                        link_href = link.get_attribute("href") or ""
+                                        if 'facebook.com' in link_href:
+                                            username = span_text
+                                            profile_href = link_href
+                                            
+                                            # Extract UID
+                                            uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
+                                            if uid_match:
+                                                uid = uid_match.group(1)
+                                            break
+                                    
+                                    if username != "Unknown":
+                                        print(f"  ✅ Found username via Strategy 3: {username}")
+                                        break
+                            except:
+                                continue
+                                
+                except Exception as e:
+                    print(f"  ⚠️ Strategy 3 failed: {e}")
             
-            # If no specific comment link found, try to construct from current page
+            # Strategy 4: Look for comment links based on time elements (user's hint about comment time)
+            # Comment links are often associated with time elements like "1 tuần", "1 week", etc.
+            try:
+                # Look for time-related elements that might have comment links
+                time_selectors = [
+                    ".//*[contains(text(), 'tuần')]",
+                    ".//*[contains(text(), 'week')]",
+                    ".//*[contains(text(), 'ngày')]",
+                    ".//*[contains(text(), 'day')]",
+                    ".//*[contains(text(), 'giờ')]",
+                    ".//*[contains(text(), 'hour')]",
+                    ".//*[contains(text(), 'phút')]",
+                    ".//*[contains(text(), 'minute')]",
+                    ".//*[contains(text(), 'giây')]",
+                    ".//*[contains(text(), 'second')]"
+                ]
+                
+                for time_selector in time_selectors:
+                    try:
+                        time_elements = element.find_elements(By.XPATH, time_selector)
+                        for time_elem in time_elements:
+                            # Look for clickable links near the time element
+                            parent_elem = time_elem.find_element(By.XPATH, "./ancestor::div[string-length(normalize-space(text())) > 20][1]")
+                            if parent_elem:
+                                # Look for comment links
+                                comment_links = parent_elem.find_elements(By.XPATH, 
+                                    ".//a[contains(@href, 'permalink') or contains(@href, 'comment') or contains(@href, 'story_fbid')]")
+                                
+                                for link in comment_links:
+                                    link_href = link.get_attribute("href") or ""
+                                    if link_href and "facebook.com" in link_href:
+                                        comment_link = link_href
+                                        break
+                                
+                                if comment_link:
+                                    break
+                        
+                        if comment_link:
+                            break
+                            
+                    except:
+                        continue
+                        
+            except Exception as e:
+                print(f"  ⚠️ Comment link extraction failed: {e}")
+            
+            # Strategy 5: If still no comment link, try to construct from current page
             if not comment_link:
                 try:
                     current_url = self.driver.current_url
@@ -894,8 +871,7 @@ class FacebookGroupsScraper:
                 except:
                     pass
             
-            # Return data focused on links and names
-            # For mobile groups, we need at least a username to be valid
+            # Final validation - we need at least a username to be valid
             if username == "Unknown":
                 print("  ❌ Could not extract username from this element")
                 return None
