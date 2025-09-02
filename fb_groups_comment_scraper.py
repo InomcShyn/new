@@ -272,9 +272,20 @@ class FacebookGroupsScraper:
                     "//div[.//strong/a[contains(@href, 'profile.php')]]",
                     "//div[.//h3/a[contains(@href, 'profile.php')]]",
                     "//div[.//span/a[contains(@href, 'profile.php')]]",
+                    
+                    # New mobile selectors based on current Facebook structure
+                    "//div[contains(@class, 'm') and .//span[contains(@class, 'f20')]]",  # Based on your div example
+                    "//div[contains(@class, 'm') and .//div[contains(@class, 'native-text')]]",
+                    "//div[@data-action-id and .//span[contains(@class, 'f20')]]",
+                    "//div[@data-type='text' and .//span[contains(@class, 'f20')]]",
+                    
                     # Broader selectors for groups
                     "//div[.//a[contains(@href, 'facebook.com/')] and string-length(normalize-space(text())) > 25]",
-                    "//div[string-length(normalize-space(text())) > 40 and .//a[contains(@href, 'profile')]]"
+                    "//div[string-length(normalize-space(text())) > 40 and .//a[contains(@href, 'profile')]]",
+                    
+                    # Very broad mobile selectors
+                    "//div[contains(@class, 'm') and string-length(normalize-space(text())) > 20]",
+                    "//div[@data-action-id and string-length(normalize-space(text())) > 15]"
                 ]
             }
         else:
@@ -531,8 +542,21 @@ class FacebookGroupsScraper:
                 "//*[contains(text(), 'Like') or contains(text(), 'Thích')]/ancestor::div[string-length(text()) > 40][1]",
                 "//span[string-length(normalize-space(text())) > 25]/ancestor::div[1]",
                 "//a[contains(@href,'profile.php')]/ancestor::div[string-length(text()) > 30][1]",
+                
+                # New mobile Facebook selectors based on your div example
+                "//div[contains(@class, 'm') and .//span[contains(@class, 'f20')]]",
+                "//div[contains(@class, 'm') and .//div[contains(@class, 'native-text')]]",
+                "//div[@data-action-id and .//span[contains(@class, 'f20')]]",
+                "//div[@data-type='text' and .//span[contains(@class, 'f20')]]",
+                "//div[contains(@class, 'm') and string-length(normalize-space(text())) > 15]",
+                "//div[@data-action-id and string-length(normalize-space(text())) > 10]",
+                
                 # Very broad mobile groups selector
-                "//div[string-length(normalize-space(text())) > 50 and .//a[contains(@href, 'facebook.com/')]]"
+                "//div[string-length(normalize-space(text())) > 50 and .//a[contains(@href, 'facebook.com/')]]",
+                
+                # Ultra broad selectors for mobile
+                "//div[string-length(normalize-space(text())) > 30 and contains(@class, 'm')]",
+                "//div[string-length(normalize-space(text())) > 25 and @data-action-id]"
             ]
             
             for selector in emergency_selectors:
@@ -645,7 +669,12 @@ class FacebookGroupsScraper:
                 # Mobile groups specific selectors
                 ".//div[@data-sigil='comment']//a[contains(@href, 'facebook.com/')]",
                 ".//div[contains(@class, 'comment')]//a[contains(@href, 'facebook.com/')]",
-                ".//div[@role='article']//a[contains(@href, 'facebook.com/')]"
+                ".//div[@role='article']//a[contains(@href, 'facebook.com/')]",
+                
+                # New mobile Facebook selectors
+                ".//span[contains(@class, 'f20')]/a[contains(@href, 'facebook.com/')]",
+                ".//div[contains(@class, 'native-text')]//a[contains(@href, 'facebook.com/')]",
+                ".//a[contains(@href, 'facebook.com/') and string-length(normalize-space(text())) > 1]"
             ]
             
             # Extract profile link and username
@@ -775,6 +804,42 @@ class FacebookGroupsScraper:
                                 if uid_match:
                                     uid = uid_match.group(1)
                                 break
+                except:
+                    pass
+            
+            # Strategy 5: Mobile Facebook specific - extract from text structure
+            if username == "Unknown":
+                try:
+                    # Look for username in the text structure (like your div example)
+                    username_spans = element.find_elements(By.XPATH, ".//span[contains(@class, 'f20')]")
+                    
+                    for span in username_spans:
+                        span_text = span.text.strip()
+                        if (span_text and 
+                            len(span_text) > 2 and 
+                            len(span_text) < 50 and
+                            not any(ui in span_text.lower() for ui in ['ẩn danh', 'người tham gia', 'like', 'reply', 'share', 'comment', 'thành viên', 'bài viết của'])):
+                            
+                            # Try to find profile link in parent or sibling elements
+                            parent_div = span.find_element(By.XPATH, "./ancestor::div[contains(@class, 'm')][1]")
+                            if parent_div:
+                                # Look for any Facebook link in the parent
+                                profile_links = parent_div.find_elements(By.XPATH, ".//a[contains(@href, 'facebook.com/')]")
+                                
+                                for link in profile_links:
+                                    link_href = link.get_attribute("href") or ""
+                                    if 'facebook.com' in link_href:
+                                        username = span_text
+                                        profile_href = link_href
+                                        
+                                        # Extract UID
+                                        uid_match = re.search(r'profile\.php\?id=(\d+)', link_href)
+                                        if uid_match:
+                                            uid = uid_match.group(1)
+                                        break
+                                
+                                if username != "Unknown":
+                                    break
                 except:
                     pass
             
